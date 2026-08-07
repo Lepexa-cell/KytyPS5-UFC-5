@@ -28,11 +28,6 @@ namespace {
 	return ImageViewOps::FormatsCompatible(image_format, view_format);
 }
 
-// Determines whether the given image format and view format form a valid
-// depth/stencil format pair. Both formats must be recognized as depth/stencil
-// variants that map to the same underlying depth transfer format.
-// Examples: (D32_SFLOAT, D32_SFLOAT_S8_UINT) -> both map to D32_SFLOAT.
-//           (D24_UNORM_S8_UINT, X8_D24_UNORM_PACK32) -> both map to X8_D24_UNORM_PACK32.
 [[nodiscard]] bool IsDepthStencilFormatPair(vk::Format image_format, vk::Format view_format) {
 	const auto image_transfer = DepthAspectTransferFormat(image_format);
 	const auto view_transfer  = DepthAspectTransferFormat(view_format);
@@ -47,6 +42,16 @@ namespace {
 		case vk::Format::eS8Uint:
 		case vk::Format::eR8Uint:
 		case vk::Format::eR8Unorm: return true;
+		default: return false;
+	}
+}
+
+[[nodiscard]] bool IsStencilCompatibleFormat(vk::Format image_format, vk::Format view_format) {
+	switch (image_format) {
+		case vk::Format::eD16UnormS8Uint:
+		case vk::Format::eD24UnormS8Uint:
+		case vk::Format::eD32SfloatS8Uint:
+			return view_format == vk::Format::eS8Uint;
 		default: return false;
 	}
 }
@@ -326,12 +331,6 @@ vk::ImageAspectFlags DepthAspectMask(vk::Format format) {
 	}
 }
 
-// Returns the list of formats that are mutually compatible with the given format
-// in the same Vulkan format compatibility class. This is used to populate
-// VkImageFormatListCreateInfo when creating mutable images, enabling format
-// reinterpretation between compatible depth and depth+stencil variants
-// (e.g. D32_SFLOAT_S8_UINT <-> D32_SFLOAT, D24_UNORM_S8_UINT <-> X8_D24_UNORM_PACK32,
-// D32_SFLOAT <-> R32_SFLOAT for sampled depth-as-luminance reads).
 [[nodiscard]] std::vector<vk::Format> CompatibleFormats(vk::Format format) {
 	std::vector<vk::Format> result {format};
 	switch (format) {
@@ -339,10 +338,7 @@ vk::ImageAspectFlags DepthAspectMask(vk::Format format) {
 		case vk::Format::eD32SfloatS8Uint:
 			result.push_back(vk::Format::eD32Sfloat);
 			result.push_back(vk::Format::eD32SfloatS8Uint);
-			// On PS5/AMD hardware, D32_SFLOAT and R32_SFLOAT share the same
-			// 32-bit single-channel bit layout. The GNM/Agc sampled-view format
-			// for Z32F depth is R32_SFLOAT, so the image must declare it as a
-			// compatible view format to allow sampled depth reads.
+			result.push_back(vk::Format::eS8Uint);
 			result.push_back(vk::Format::eR32Sfloat);
 			result.push_back(vk::Format::eR32Sint);
 			result.push_back(vk::Format::eR32Uint);
@@ -351,11 +347,13 @@ vk::ImageAspectFlags DepthAspectMask(vk::Format format) {
 		case vk::Format::eX8D24UnormPack32:
 			result.push_back(vk::Format::eD24UnormS8Uint);
 			result.push_back(vk::Format::eX8D24UnormPack32);
+			result.push_back(vk::Format::eS8Uint);
 			break;
 		case vk::Format::eD16Unorm:
 		case vk::Format::eD16UnormS8Uint:
 			result.push_back(vk::Format::eD16Unorm);
 			result.push_back(vk::Format::eD16UnormS8Uint);
+			result.push_back(vk::Format::eS8Uint);
 			break;
 		default: break;
 	}
@@ -366,21 +364,14 @@ bool FormatsCompatible(vk::Format base, vk::Format view) noexcept {
 	if (base == view) {
 		return true;
 	}
-	// Format compatibility is determined by the generic FormatClass-based check below.
-	// Formats with the same compatibility class (e.g. R16G16B16A16_UINT and
-	// R16G16B16A16_SFLOAT both belong to Bit64) are considered compatible,
-	// enabling image view creation across formats in the same class.
 	const auto base_class = FormatClass(base);
 	const auto view_class = FormatClass(view);
 	if (view_class != None && (base_class & view_class) == view_class) {
 		return true;
 	}
-	// Depth/stencil cross-class compatibility: per the Vulkan specification,
-	// D32_SFLOAT and D32_SFLOAT_S8_UINT belong to one compatibility class, and
-	// D24_UNORM_S8_UINT and X8_D24_UNORM_PACK32 belong to another. When the
-	// image was created with VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT and the format
-	// list was provided via VkImageFormatListCreateInfo, these are considered
-	// compatible for view creation through the IsDepthStencilFormatPair path.
+	if (IsStencilCompatibleFormat(base, view)) {
+		return true;
+	}
 	return IsDepthStencilFormatPair(base, view);
 }
 
@@ -392,30 +383,14 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	const bool  is_storage = static_cast<bool>(normalized.usage & vk::ImageUsageFlagBits::eStorage);
 	normalized.aspect      = FullAspectMask(image.format);
 
-	// When the image has a depth/stencil aspect, determine the appropriate view
-	// format and aspect based on whether the requested view format is a depth
-	// view format, a stencil view format, or a color-interpretable format (e.g.
-	// R32_SFLOAT used for sampled depth reads on PS5/Agc hardware).
 	const bool image_is_depth = DepthAspectTransferFormat(image.format) != vk::Format::eUndefined;
 	if (image_is_depth) {
 		if (IsDepthViewFormat(normalized.format)) {
-			// Depth view formats (D32_SFLOAT, R32_SFLOAT, etc.) are used with
-			// the eDepth aspect. We must NOT override the view format here —
-			// the caller has explicitly requested a specific format (e.g.
-			// R32_SFLOAT for sampled depth reads) that is compatible with the
-			// image format via the format compatibility class check.
 			normalized.aspect = vk::ImageAspectFlagBits::eDepth;
 		} else if (IsStencilViewFormat(normalized.format)) {
-			normalized.format = image.format;
 			normalized.aspect = vk::ImageAspectFlagBits::eStencil;
 		}
 	}
-	// Ensure the image usage flags are properly propagated. The image may have
-	// been created with usage=0x0 (defaulting to sampled) or usage=0x4
-	// (VK_IMAGE_USAGE_SAMPLED_BIT). We must preserve the parent image's usage
-	// flags and only override with eStorage when the caller explicitly requests
-	// a storage view, ensuring VK_IMAGE_USAGE_SAMPLED_BIT is always available
-	// for sampled view creation on mutable images.
 	normalized.usage = is_storage ? vk::ImageUsageFlagBits::eStorage : vk::ImageUsageFlagBits::eSampled;
 	const bool format_compatible = normalized.format != vk::Format::eUndefined &&
 	                               (IsCompatibleViewFormat(image.format, normalized.format) ||
@@ -454,17 +429,9 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 		}
 	}
 
-	// Propagate usage flags from the parent VkImage to the VkImageView.
-	// The image's usage flags are set during allocation in Image::Image().
-	// We use VkImageViewUsageCreateInfo to restrict the view's usage to a
-	// subset of the image's usage, ensuring that flags like
-	// VK_IMAGE_USAGE_SAMPLED_BIT (usage=0x4) are correctly carried through
-	// even when the view format differs from the image format.
 	vk::ImageViewUsageCreateInfo view_usage {};
 	view_usage.sType = vk::StructureType::eImageViewUsageCreateInfo;
 	view_usage.usage = image.usage;
-	// If the image was created with no explicit usage flags (usage=0x0),
-	// fall back to a sensible default set based on the image format.
 	if (view_usage.usage == vk::ImageUsageFlags {}) {
 		view_usage.usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc |
 		                   vk::ImageUsageFlagBits::eTransferDst;
@@ -474,8 +441,6 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 			view_usage.usage |= vk::ImageUsageFlagBits::eColorAttachment;
 		}
 	}
-	// Strip storage usage if this is not a storage view, but always preserve
-	// at least sampled usage for non-storage views of mutable images.
 	if (!is_storage) {
 		view_usage.usage &= ~vk::ImageUsageFlagBits::eStorage;
 		view_usage.usage |= vk::ImageUsageFlagBits::eSampled;
