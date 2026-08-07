@@ -28,6 +28,11 @@ namespace {
 	return ImageViewOps::FormatsCompatible(image_format, view_format);
 }
 
+// Determines whether the given image format and view format form a valid
+// depth/stencil format pair. Both formats must be recognized as depth/stencil
+// variants that map to the same underlying depth transfer format.
+// Examples: (D32_SFLOAT, D32_SFLOAT_S8_UINT) -> both map to D32_SFLOAT.
+//           (D24_UNORM_S8_UINT, X8_D24_UNORM_PACK32) -> both map to X8_D24_UNORM_PACK32.
 [[nodiscard]] bool IsDepthStencilFormatPair(vk::Format image_format, vk::Format view_format) {
 	const auto image_transfer = DepthAspectTransferFormat(image_format);
 	const auto view_transfer  = DepthAspectTransferFormat(view_format);
@@ -51,8 +56,7 @@ namespace {
 		case vk::Format::eD16Unorm:
 		case vk::Format::eR16Unorm:
 		case vk::Format::eD32Sfloat:
-		case vk::Format::eR32Sfloat:
-		case vk::Format::eR32Uint: return true;
+		case vk::Format::eR32Sfloat: return true;
 		default: return false;
 	}
 }
@@ -301,7 +305,7 @@ enum CompatibilityClass : uint32_t {
 		case vk::Format::eD16UnormS8Uint: return D16S8;
 		case vk::Format::eX8D24UnormPack32: return D24;
 		case vk::Format::eD24UnormS8Uint: return D24S8;
-		case vk::Format::eD32Sfloat: return D32;
+		case vk::Format::eD32Sfloat: return D32 | Bit32;
 		case vk::Format::eD32SfloatS8Uint: return D32S8;
 		case vk::Format::eS8Uint: return S8;
 		default: return None;
@@ -326,7 +330,8 @@ vk::ImageAspectFlags DepthAspectMask(vk::Format format) {
 // in the same Vulkan format compatibility class. This is used to populate
 // VkImageFormatListCreateInfo when creating mutable images, enabling format
 // reinterpretation between compatible depth and depth+stencil variants
-// (e.g. D32_SFLOAT_S8_UINT <-> D32_SFLOAT, D24_UNORM_S8_UINT <-> X8_D24_UNORM_PACK32).
+// (e.g. D32_SFLOAT_S8_UINT <-> D32_SFLOAT, D24_UNORM_S8_UINT <-> X8_D24_UNORM_PACK32,
+// D32_SFLOAT <-> R32_SFLOAT for sampled depth-as-luminance reads).
 [[nodiscard]] std::vector<vk::Format> CompatibleFormats(vk::Format format) {
 	std::vector<vk::Format> result {format};
 	switch (format) {
@@ -334,6 +339,13 @@ vk::ImageAspectFlags DepthAspectMask(vk::Format format) {
 		case vk::Format::eD32SfloatS8Uint:
 			result.push_back(vk::Format::eD32Sfloat);
 			result.push_back(vk::Format::eD32SfloatS8Uint);
+			// On PS5/AMD hardware, D32_SFLOAT and R32_SFLOAT share the same
+			// 32-bit single-channel bit layout. The GNM/Agc sampled-view format
+			// for Z32F depth is R32_SFLOAT, so the image must declare it as a
+			// compatible view format to allow sampled depth reads.
+			result.push_back(vk::Format::eR32Sfloat);
+			result.push_back(vk::Format::eR32Sint);
+			result.push_back(vk::Format::eR32Uint);
 			break;
 		case vk::Format::eD24UnormS8Uint:
 		case vk::Format::eX8D24UnormPack32:
@@ -379,15 +391,24 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	auto        normalized = view_info;
 	const bool  is_storage = static_cast<bool>(normalized.usage & vk::ImageUsageFlagBits::eStorage);
 	normalized.aspect      = FullAspectMask(image.format);
-	if (normalized.aspect & vk::ImageAspectFlagBits::eDepth &&
-	    IsDepthViewFormat(normalized.format)) {
-		normalized.format = image.format;
-		normalized.aspect = vk::ImageAspectFlagBits::eDepth;
-	}
-	if (normalized.aspect & vk::ImageAspectFlagBits::eStencil &&
-	    IsStencilViewFormat(normalized.format)) {
-		normalized.format = image.format;
-		normalized.aspect = vk::ImageAspectFlagBits::eStencil;
+
+	// When the image has a depth/stencil aspect, determine the appropriate view
+	// format and aspect based on whether the requested view format is a depth
+	// view format, a stencil view format, or a color-interpretable format (e.g.
+	// R32_SFLOAT used for sampled depth reads on PS5/Agc hardware).
+	const bool image_is_depth = DepthAspectTransferFormat(image.format) != vk::Format::eUndefined;
+	if (image_is_depth) {
+		if (IsDepthViewFormat(normalized.format)) {
+			// Depth view formats (D32_SFLOAT, R32_SFLOAT, etc.) are used with
+			// the eDepth aspect. We must NOT override the view format here —
+			// the caller has explicitly requested a specific format (e.g.
+			// R32_SFLOAT for sampled depth reads) that is compatible with the
+			// image format via the format compatibility class check.
+			normalized.aspect = vk::ImageAspectFlagBits::eDepth;
+		} else if (IsStencilViewFormat(normalized.format)) {
+			normalized.format = image.format;
+			normalized.aspect = vk::ImageAspectFlagBits::eStencil;
+		}
 	}
 	// Ensure the image usage flags are properly propagated. The image may have
 	// been created with usage=0x0 (defaulting to sampled) or usage=0x4
@@ -410,7 +431,7 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	                              : image.layers;
 	const bool ranges_valid = levels_valid && normalized.layer_count != 0 &&
 	                          normalized.base_layer < view_layers &&
-	                          normalized.layer_count <= view_layers - normalized.base_layer;
+	                         normalized.layer_count <= view_layers - normalized.base_layer;
 	const bool mapping_valid =
 	    IsComponentSwizzle(normalized.mapping.r) && IsComponentSwizzle(normalized.mapping.g) &&
 	    IsComponentSwizzle(normalized.mapping.b) && IsComponentSwizzle(normalized.mapping.a);
