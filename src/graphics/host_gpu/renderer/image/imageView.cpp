@@ -25,6 +25,9 @@ namespace {
 }
 
 [[nodiscard]] bool IsCompatibleViewFormat(vk::Format image_format, vk::Format view_format) {
+	if (IsStencilCompatibleFormat(image_format, view_format)) {
+		return true;
+	}
 	return ImageViewOps::FormatsCompatible(image_format, view_format);
 }
 
@@ -51,7 +54,7 @@ namespace {
 		case vk::Format::eD16UnormS8Uint:
 		case vk::Format::eD24UnormS8Uint:
 		case vk::Format::eD32SfloatS8Uint:
-			return view_format == vk::Format::eS8Uint;
+			return IsStencilViewFormat(view_format);
 		default: return false;
 	}
 }
@@ -394,7 +397,8 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	normalized.usage = is_storage ? vk::ImageUsageFlagBits::eStorage : vk::ImageUsageFlagBits::eSampled;
 	const bool format_compatible = normalized.format != vk::Format::eUndefined &&
 	                               (IsCompatibleViewFormat(image.format, normalized.format) ||
-	                                IsDepthStencilFormatPair(image.format, normalized.format));
+	                                IsDepthStencilFormatPair(image.format, normalized.format) ||
+	                                IsStencilCompatibleFormat(image.format, normalized.format));
 	const bool slice_view =
 	    image.image_type == vk::ImageType::e3D && (normalized.type == vk::ImageViewType::e2D ||
 	                                               normalized.type == vk::ImageViewType::e2DArray);
