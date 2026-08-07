@@ -59,6 +59,9 @@ namespace {
 		usage |= vk::ImageUsageFlagBits::eSampled;
 	}
 	if (DepthAspectTransferFormat(info.pixel_format) != vk::Format::eUndefined) {
+		// Depth/stencil images always need to be sampleable for shader reads
+		// (e.g. shadow mapping, depth texture sampling in shaders).
+		usage |= vk::ImageUsageFlagBits::eSampled;
 		usage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
 		return usage;
 	}
@@ -698,6 +701,20 @@ Image::Image(GraphicContext& graphics, CommandScheduler& scheduler, const ImageI
 	create.usage         = backing.usage;
 	create.sharingMode   = vk::SharingMode::eExclusive;
 	create.samples       = vulkan_sample_count(backing.samples);
+
+	// When the image is mutable, provide the list of compatible formats so the
+	// driver knows which formats can be used for view creation. This is
+	// required to allow views with different formats in the same compatibility
+	// class (e.g. D32_SFLOAT_S8_UINT -> D32_SFLOAT for sampled depth access).
+	vk::ImageFormatListCreateInfo format_list {};
+	std::vector<vk::Format>       formats = ImageViewOps::CompatibleFormats(backing.format);
+	if (static_cast<bool>(create.flags & vk::ImageCreateFlagBits::eMutableFormat) &&
+	    formats.size() > 1) {
+		format_list.pNext           = create.pNext;
+		format_list.viewFormatCount = static_cast<uint32_t>(formats.size());
+		format_list.pViewFormats    = formats.data();
+		create.pNext                = &format_list;
+	}
 
 	vk::ImageFormatProperties properties {};
 	if (graphics.GetImageFormatProperties(create.format, create.imageType, create.tiling,

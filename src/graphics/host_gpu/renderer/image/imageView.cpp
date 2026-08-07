@@ -5,6 +5,7 @@
 #include "graphics/host_gpu/renderer/image/image.h"
 
 #include <mutex>
+#include <vector>
 
 namespace Libs::Graphics {
 
@@ -321,6 +322,34 @@ vk::ImageAspectFlags DepthAspectMask(vk::Format format) {
 	}
 }
 
+// Returns the list of formats that are mutually compatible with the given format
+// in the same Vulkan format compatibility class. This is used to populate
+// VkImageFormatListCreateInfo when creating mutable images, enabling format
+// reinterpretation between compatible depth and depth+stencil variants
+// (e.g. D32_SFLOAT_S8_UINT <-> D32_SFLOAT, D24_UNORM_S8_UINT <-> X8_D24_UNORM_PACK32).
+[[nodiscard]] std::vector<vk::Format> CompatibleFormats(vk::Format format) {
+	std::vector<vk::Format> result {format};
+	switch (format) {
+		case vk::Format::eD32Sfloat:
+		case vk::Format::eD32SfloatS8Uint:
+			result.push_back(vk::Format::eD32Sfloat);
+			result.push_back(vk::Format::eD32SfloatS8Uint);
+			break;
+		case vk::Format::eD24UnormS8Uint:
+		case vk::Format::eX8D24UnormPack32:
+			result.push_back(vk::Format::eD24UnormS8Uint);
+			result.push_back(vk::Format::eX8D24UnormPack32);
+			break;
+		case vk::Format::eD16Unorm:
+		case vk::Format::eD16UnormS8Uint:
+			result.push_back(vk::Format::eD16Unorm);
+			result.push_back(vk::Format::eD16UnormS8Uint);
+			break;
+		default: break;
+	}
+	return result;
+}
+
 bool FormatsCompatible(vk::Format base, vk::Format view) noexcept {
 	if (base == view) {
 		return true;
@@ -331,7 +360,16 @@ bool FormatsCompatible(vk::Format base, vk::Format view) noexcept {
 	// enabling image view creation across formats in the same class.
 	const auto base_class = FormatClass(base);
 	const auto view_class = FormatClass(view);
-	return view_class != None && (base_class & view_class) == view_class;
+	if (view_class != None && (base_class & view_class) == view_class) {
+		return true;
+	}
+	// Depth/stencil cross-class compatibility: per the Vulkan specification,
+	// D32_SFLOAT and D32_SFLOAT_S8_UINT belong to one compatibility class, and
+	// D24_UNORM_S8_UINT and X8_D24_UNORM_PACK32 belong to another. When the
+	// image was created with VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT and the format
+	// list was provided via VkImageFormatListCreateInfo, these are considered
+	// compatible for view creation through the IsDepthStencilFormatPair path.
+	return IsDepthStencilFormatPair(base, view);
 }
 
 } // namespace ImageViewOps
@@ -351,6 +389,12 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 		normalized.format = image.format;
 		normalized.aspect = vk::ImageAspectFlagBits::eStencil;
 	}
+	// Ensure the image usage flags are properly propagated. The image may have
+	// been created with usage=0x0 (defaulting to sampled) or usage=0x4
+	// (VK_IMAGE_USAGE_SAMPLED_BIT). We must preserve the parent image's usage
+	// flags and only override with eStorage when the caller explicitly requests
+	// a storage view, ensuring VK_IMAGE_USAGE_SAMPLED_BIT is always available
+	// for sampled view creation on mutable images.
 	normalized.usage = is_storage ? vk::ImageUsageFlagBits::eStorage : vk::ImageUsageFlagBits::eSampled;
 	const bool format_compatible = normalized.format != vk::Format::eUndefined &&
 	                               (IsCompatibleViewFormat(image.format, normalized.format) ||
@@ -389,24 +433,36 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 		}
 	}
 
-	vk::ImageViewUsageCreateInfo usage {};
-	usage.sType = vk::StructureType::eImageViewUsageCreateInfo;
-	usage.usage = image.usage;
-	if (usage.usage == vk::ImageUsageFlags {}) {
-		usage.usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc |
-		              vk::ImageUsageFlagBits::eTransferDst;
+	// Propagate usage flags from the parent VkImage to the VkImageView.
+	// The image's usage flags are set during allocation in Image::Image().
+	// We use VkImageViewUsageCreateInfo to restrict the view's usage to a
+	// subset of the image's usage, ensuring that flags like
+	// VK_IMAGE_USAGE_SAMPLED_BIT (usage=0x4) are correctly carried through
+	// even when the view format differs from the image format.
+	vk::ImageViewUsageCreateInfo view_usage {};
+	view_usage.sType = vk::StructureType::eImageViewUsageCreateInfo;
+	view_usage.usage = image.usage;
+	// If the image was created with no explicit usage flags (usage=0x0),
+	// fall back to a sensible default set based on the image format.
+	if (view_usage.usage == vk::ImageUsageFlags {}) {
+		view_usage.usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc |
+		                   vk::ImageUsageFlagBits::eTransferDst;
 		if (DepthAspectTransferFormat(image.format) != vk::Format::eUndefined) {
-			usage.usage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
+			view_usage.usage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
 		} else {
-			usage.usage |= vk::ImageUsageFlagBits::eColorAttachment;
+			view_usage.usage |= vk::ImageUsageFlagBits::eColorAttachment;
 		}
 	}
+	// Strip storage usage if this is not a storage view, but always preserve
+	// at least sampled usage for non-storage views of mutable images.
 	if (!is_storage) {
-		usage.usage &= ~vk::ImageUsageFlagBits::eStorage;
+		view_usage.usage &= ~vk::ImageUsageFlagBits::eStorage;
+		view_usage.usage |= vk::ImageUsageFlagBits::eSampled;
 	}
+
 	vk::ImageViewCreateInfo create {};
 	create.sType                           = vk::StructureType::eImageViewCreateInfo;
-	create.pNext                           = &usage;
+	create.pNext                           = &view_usage;
 	create.image                           = image.image;
 	create.viewType                        = normalized.type;
 	create.format                          = normalized.format;

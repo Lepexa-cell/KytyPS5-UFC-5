@@ -6,12 +6,18 @@
 #include "graphics/shader/recompiler/ir/ShaderIR.h"
 #include "graphics/shader/shader.h"
 
+#include <vector>
+
 namespace Libs::Graphics {
 
 namespace ImageViewOps {
 
 [[nodiscard]] vk::ImageAspectFlags DepthAspectMask(vk::Format format);
 [[nodiscard]] bool                 FormatsCompatible(vk::Format base, vk::Format view) noexcept;
+// Returns the list of formats mutually compatible with the given format in the
+// same Vulkan format compatibility class, for use with VkImageFormatListCreateInfo
+// when creating mutable images with VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT.
+[[nodiscard]] std::vector<vk::Format> CompatibleFormats(vk::Format format);
 } // namespace ImageViewOps
 
 [[nodiscard]] inline bool IsValidImageSwizzle(uint32_t swizzle) noexcept {
