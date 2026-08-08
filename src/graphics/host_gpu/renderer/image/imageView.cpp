@@ -11,15 +11,21 @@ namespace Libs::Graphics {
 
 namespace {
 
-[[nodiscard]] bool IsComponentSwizzle(vk::ComponentSwizzle swizzle) {
-	switch (swizzle) {
-		case vk::ComponentSwizzle::eIdentity:
-		case vk::ComponentSwizzle::eZero:
-		case vk::ComponentSwizzle::eOne:
-		case vk::ComponentSwizzle::eR:
-		case vk::ComponentSwizzle::eG:
-		case vk::ComponentSwizzle::eB:
-		case vk::ComponentSwizzle::eA: return true;
+[[nodiscard]] bool IsStencilViewFormat(vk::Format format) {
+	switch (format) {
+		case vk::Format::eS8Uint:
+		case vk::Format::eR8Uint:
+		case vk::Format::eR8Unorm: return true;
+		default: return false;
+	}
+}
+
+[[nodiscard]] bool IsStencilCompatibleFormat(vk::Format image_format, vk::Format view_format) {
+	switch (image_format) {
+		case vk::Format::eD16UnormS8Uint:
+		case vk::Format::eD24UnormS8Uint:
+		case vk::Format::eD32SfloatS8Uint:
+			return IsStencilViewFormat(view_format);
 		default: return false;
 	}
 }
@@ -38,25 +44,6 @@ namespace {
 		return false;
 	}
 	return image_transfer == view_transfer;
-}
-
-[[nodiscard]] bool IsStencilViewFormat(vk::Format format) {
-	switch (format) {
-		case vk::Format::eS8Uint:
-		case vk::Format::eR8Uint:
-		case vk::Format::eR8Unorm: return true;
-		default: return false;
-	}
-}
-
-[[nodiscard]] bool IsStencilCompatibleFormat(vk::Format image_format, vk::Format view_format) {
-	switch (image_format) {
-		case vk::Format::eD16UnormS8Uint:
-		case vk::Format::eD24UnormS8Uint:
-		case vk::Format::eD32SfloatS8Uint:
-			return IsStencilViewFormat(view_format);
-		default: return false;
-	}
 }
 
 [[nodiscard]] bool IsDepthViewFormat(vk::Format format) {

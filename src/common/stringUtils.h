@@ -1,6 +1,11 @@
 #ifndef KYTY_COMMON_STRING_UTILS_H_
 #define KYTY_COMMON_STRING_UTILS_H_
 
+// Suppress the C++17 deprecation warning for <codecvt> (STL4017).
+// std::wstring_convert and std::codecvt_utf8_utf16 are deprecated in C++17,
+// but there is no portable standard alternative before C++26.
+#define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
+
 #include "common/byteBuffer.h"
 #include "common/common.h"
 
