@@ -103,6 +103,17 @@ namespace {
 	return static_cast<bool>(aspect) && !(aspect & ~supported);
 }
 
+[[nodiscard]] bool IsComponentSwizzle(vk::ComponentSwizzle swizzle) noexcept {
+	switch (swizzle) {
+		case vk::ComponentSwizzle::eIdentity:
+		case vk::ComponentSwizzle::eR:
+		case vk::ComponentSwizzle::eG:
+		case vk::ComponentSwizzle::eB:
+		case vk::ComponentSwizzle::eA: return true;
+		default: return false;
+	}
+}
+
 } // namespace
 
 namespace ImageViewOps {
@@ -397,7 +408,7 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	                              : image.layers;
 	const bool ranges_valid = levels_valid && normalized.layer_count != 0 &&
 	                          normalized.base_layer < view_layers &&
-	                         normalized.layer_count <= view_layers - normalized.base_layer;
+	                          normalized.layer_count <= view_layers - normalized.base_layer;
 	const bool mapping_valid =
 	    IsComponentSwizzle(normalized.mapping.r) && IsComponentSwizzle(normalized.mapping.g) &&
 	    IsComponentSwizzle(normalized.mapping.b) && IsComponentSwizzle(normalized.mapping.a);
