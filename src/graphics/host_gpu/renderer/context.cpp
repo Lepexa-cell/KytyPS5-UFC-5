@@ -169,10 +169,13 @@ void CommandBuffer::Execute(const SubmitInfo& submit) {
 
 	auto result = graphics.device.resetFences(1, &fence);
 	if (result != vk::Result::eSuccess) {
-		LOGF("vkResetFences failed before submit: %s (%d)\n", VulkanToString(result).c_str(),
-		     static_cast<int>(result));
+		LOGF("vkResetFences failed before submit: %s (%d, 0x%08x)\n", VulkanToString(result).c_str(),
+		     static_cast<int>(result), static_cast<uint32_t>(static_cast<int>(result)));
+		if (result != vk::Result::eNotReady && result != vk::Result::eTimeout) {
+			m_execute = false;
+			return;
+		}
 	}
-	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
 
 	if (Config::GraphicsDebugDumpEnabled()) {
 		LOGF("vkQueueSubmit begin: slot=%u waits=%u signals=%u debug_op=%u debug_submit=%" PRIu64
@@ -192,13 +195,18 @@ void CommandBuffer::Execute(const SubmitInfo& submit) {
 	m_fence_waited = false;
 
 	if (result != vk::Result::eSuccess) {
-		LOGF("vkQueueSubmit failed: %s (%d), slot=%u submit_seq=%" PRIu64
+		LOGF("vkQueueSubmit failed: %s (%d, 0x%08x), slot=%u submit_seq=%" PRIu64
 		     " debug_op=%u debug_submit=%" PRIu64 " args=%u,%u,%u,%u,0x%016" PRIx64 "\n",
-		     VulkanToString(result).c_str(), static_cast<int>(result), m_slot->id, m_submit_seq,
+		     VulkanToString(result).c_str(), static_cast<int>(result),
+		     static_cast<uint32_t>(static_cast<int>(result)), m_slot->id, m_submit_seq,
 		     m_debug_op, m_debug_submit_id, m_debug_arg0, m_debug_arg1, m_debug_arg2, m_debug_arg3,
 		     m_debug_arg4);
+		if (result != vk::Result::eNotReady) {
+			m_execute = false;
+			return;
+		}
 	}
-	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
+	m_fence_waited = (result == vk::Result::eSuccess);
 }
 
 void CommandBuffer::WaitForFence() {
@@ -213,13 +221,18 @@ void CommandBuffer::WaitForFenceOnly() {
 	auto device = m_graphics.device;
 	auto result = device.waitForFences(1, &m_slot->fence, VK_TRUE, UINT64_MAX);
 	if (result != vk::Result::eSuccess) {
-		LOGF("vkWaitForFences failed: %s (%d), slot=%u submit_seq=%" PRIu64
+		LOGF("vkWaitForFences failed: %s (%d, 0x%08x), slot=%u submit_seq=%" PRIu64
 		     " debug_op=%u debug_submit=%" PRIu64 " args=%u,%u,%u,%u,0x%016" PRIx64 "\n",
-		     VulkanToString(result).c_str(), static_cast<int>(result), m_slot->id, m_submit_seq,
-		     m_debug_op, m_debug_submit_id, m_debug_arg0, m_debug_arg1, m_debug_arg2, m_debug_arg3,
-		     m_debug_arg4);
+		     VulkanToString(result).c_str(), static_cast<int>(result),
+		     static_cast<uint32_t>(static_cast<int>(result)),
+		     m_slot->id, m_submit_seq, m_debug_op, m_debug_submit_id, m_debug_arg0, m_debug_arg1,
+		     m_debug_arg2, m_debug_arg3, m_debug_arg4);
+		if (result == vk::Result::eNotReady || result == vk::Result::eTimeout) {
+			return;
+		}
+		m_execute = false;
+		return;
 	}
-	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
 	m_fence_waited = true;
 }
 
