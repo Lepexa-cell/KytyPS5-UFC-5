@@ -7,6 +7,11 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+// Suppress deprecation warning for std::wstring_convert and std::codecvt_utf8_utf16
+// which are deprecated in C++17 but have no standard replacement.
+#ifndef _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
+#define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
+#endif
 #include <codecvt>
 #include <filesystem>
 #include <fmt/format.h>
@@ -187,7 +192,7 @@ inline std::string ReplaceStr(std::string text, std::string_view old_str,
 	}
 
 	size_t pos = 0;
-	while ((pos = text.find(old_str, pos)) != std::string::npos) {
+	while ((pos = text.find(old_str, pos)) != std::string_view::npos) {
 		text.replace(pos, old_str.size(), new_str);
 		pos += new_str.size();
 	}

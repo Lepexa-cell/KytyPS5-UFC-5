@@ -548,4 +548,4 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	return view;
 }
 
-
+} // namespace Libs::Graphics
