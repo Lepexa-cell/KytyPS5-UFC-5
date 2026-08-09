@@ -309,6 +309,14 @@ bool IsSupportedDepthTextureEncoding(const ShaderTextureResource& descriptor, co
 static void ValidateDepthTargetBinding(const ShaderRecompiler::IR::ImageResource& resource,
                                        const ShaderTextureResource& descriptor, const Image* image,
                                        vk::Format view_format, uint64_t size) {
+	const bool depth_d24s8_packed_view =
+	    image != nullptr &&
+	    image->info.pixel_format == vk::Format::eD32SfloatS8Uint &&
+	    view_format == vk::Format::eA2B10G10R10UnormPack32 &&
+	    descriptor.Format() == Prospero::GpuEnumValue(Prospero::BufferFormat::k10_10_10_2UNorm);
+	if (depth_d24s8_packed_view) {
+		return;
+	}
 	const bool resource_ok = IsSupportedSampledDepthResource(resource);
 	const bool descriptor_ok =
 	    image != nullptr && IsSupportedDepthTargetDescriptor(descriptor, *image);

@@ -219,7 +219,7 @@ struct DepthFormatPolicy {
 	std::array<vk::Format, 3> stencil_attachment_formats;
 };
 
-inline constexpr std::array<DepthFormatPolicy, 2> DEPTH_FORMAT_POLICIES {{
+inline constexpr std::array<DepthFormatPolicy, 3> DEPTH_FORMAT_POLICIES {{
     {Prospero::DepthFormat::kZ16,
      Prospero::BufferFormat::k16UNorm,
      2,
@@ -232,6 +232,12 @@ inline constexpr std::array<DepthFormatPolicy, 2> DEPTH_FORMAT_POLICIES {{
      vk::Format::eR32Sfloat,
      vk::Format::eD32Sfloat,
      {vk::Format::eD32SfloatS8Uint, vk::Format::eUndefined, vk::Format::eUndefined}},
+    {Prospero::DepthFormat::kZ32F,
+     Prospero::BufferFormat::k10_10_10_2UNorm,
+     4,
+     vk::Format::eA2B10G10R10UnormPack32,
+     vk::Format::eD32SfloatS8Uint,
+     {vk::Format::eUndefined, vk::Format::eUndefined, vk::Format::eUndefined}},
 }};
 
 [[nodiscard]] inline constexpr const DepthFormatPolicy*

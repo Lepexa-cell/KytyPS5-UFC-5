@@ -76,7 +76,8 @@ SelectSampledColorView(vk::Format image_format, vk::Format view_format, uint32_t
 	switch (swizzle) {
 		case DstSel(4, 4, 4, 4):
 		case DstSel(4, 0, 0, 0):
-		case DstSel(4, 0, 0, 1): return true;
+		case DstSel(4, 0, 0, 1):
+		case DstSel(4, 5, 6, 7): return true;
 		default: return false;
 	}
 }
