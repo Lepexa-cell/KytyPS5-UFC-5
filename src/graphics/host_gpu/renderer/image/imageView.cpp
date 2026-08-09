@@ -62,13 +62,7 @@ namespace {
 // D32_SFLOAT) with a single-component format (e.g. R32_SFLOAT) in shaders,
 // as permitted by the Vulkan specification.
 [[nodiscard]] bool IsSampledDepthViewFormat(vk::Format image_format, vk::Format view_format) {
-	switch (image_format) {
-		case vk::Format::eD16Unorm:
-		case vk::Format::eD16UnormS8Uint: return view_format == vk::Format::eR16Unorm;
-		case vk::Format::eD32Sfloat:
-		case vk::Format::eD32SfloatS8Uint: return view_format == vk::Format::eR32Sfloat;
-		default: return false;
-	}
+	return IsSupportedSampledDepthFormat(image_format, view_format);
 }
 
 [[nodiscard]] bool IsValidViewType(const VulkanImage& image, const ImageViewInfo& info) {
