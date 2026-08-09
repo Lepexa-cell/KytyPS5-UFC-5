@@ -1079,6 +1079,35 @@ void TestNewShaderRecompilerScalarVectorAlu() {
 	CheckSpirvBinaryValidates(result.spirv);
 }
 
+void TestNewShaderRecompilerSop2SignedMulHi() {
+	const uint32_t shader[] = {
+	    EncodeSMovB32(0, 137),            // s0 = 9
+	    EncodeSMovB32(1, 144),            // s1 = 16
+	    EncodeSop2(0x28, 2, 0, 1),        // s_mul_hi_i32 s2, s0, s1
+	    EncodeSop2(0x35, 3, 0, 1),        // s_mul_hi_u32 s3, s0, s1
+	    EncodeSopp(0x01, 0),
+	};
+
+	ShaderRecompiler::CompileOptions options;
+	options.stage   = ShaderType::Compute;
+	options.dump_ir = true;
+
+	ShaderRecompiler::CompileResult result;
+	std::string                     error;
+	Check(ShaderRecompiler::TryRecompile(shader, options, result, &error), error.c_str());
+	Check(Common::ContainsStr(result.decoded_dump, "s_mul_hi_i32 s2, s0, s1"),
+	      "new decoder did not decode S_MUL_HI_I32");
+	Check(Common::ContainsStr(result.ir_dump, "SMulHighI32 s2, s0, s1"),
+	      "S_MUL_HI_I32 did not lower to signed high-multiply IR");
+	Check(Common::ContainsStr(result.ir_dump, "UMulHighU32 s3, s0, s1"),
+	      "S_MUL_HI_U32 did not lower to unsigned high-multiply IR");
+	Check(SpirvContainsOpcode(result.spirv, 153), // OpSMulExtended
+	      "SPIR-V binary does not contain OpSMulExtended for S_MUL_HI_I32");
+	Check(SpirvContainsOpcode(result.spirv, 151), // OpUMulExtended
+	      "SPIR-V binary does not contain OpUMulExtended for S_MUL_HI_U32");
+	CheckSpirvBinaryValidates(result.spirv);
+}
+
 void TestNewShaderRecompilerVop3LaneReadDestinationEncoding() {
 	// Lane-read instructions have scalar results, but their VOP3A destination is encoded in
 	// VDST [7:0], not the VOP3B SDST field [14:8].
@@ -7533,6 +7562,7 @@ int main() {
 	TestNewShaderRecompilerSopkWaitcntMarkers();
 	TestNewShaderRecompilerRdna2ScalarOpcodes();
 	TestNewShaderRecompilerScalarVectorAlu();
+	TestNewShaderRecompilerSop2SignedMulHi();
 	TestNewShaderRecompilerVop3LaneReadDestinationEncoding();
 	TestNewShaderRecompilerMoreAluFamilies();
 	TestNewShaderRecompilerRejectsDppOn64BitCompares();

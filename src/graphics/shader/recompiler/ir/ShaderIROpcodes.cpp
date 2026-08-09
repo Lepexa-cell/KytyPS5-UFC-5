@@ -60,6 +60,7 @@ constexpr LowerMap LOWER_OPS[] = {
     {Decoder::Opcode::SAshrI32, Opcode::ShiftRightArithmeticI32},
     {Decoder::Opcode::SMulI32, Opcode::IMulU32},
     {Decoder::Opcode::SMulHiU32, Opcode::UMulHighU32},
+    {Decoder::Opcode::SMulHiI32, Opcode::SMulHighI32},
     {Decoder::Opcode::SMulkI32, Opcode::IMulU32},
     {Decoder::Opcode::SBfeU32, Opcode::BitFieldExtractU32},
     {Decoder::Opcode::SBfeU64, Opcode::BitFieldExtractU64},

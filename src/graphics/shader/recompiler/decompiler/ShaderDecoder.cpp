@@ -498,8 +498,9 @@ std::string OpcodeToString(Opcode opcode) {
 		case Opcode::SLshrB64: return "s_lshr_b64";
 		case Opcode::SAshrI32: return "s_ashr_i32";
 		case Opcode::SMulI32: return "s_mul_i32";
-		case Opcode::SMulHiU32: return "s_mul_hi_u32";
-		case Opcode::SMulkI32: return "s_mulk_i32";
+	case Opcode::SMulHiU32: return "s_mul_hi_u32";
+	case Opcode::SMulHiI32: return "s_mul_hi_i32";
+	case Opcode::SMulkI32: return "s_mulk_i32";
 		case Opcode::SBfeU32: return "s_bfe_u32";
 		case Opcode::SBfeU64: return "s_bfe_u64";
 		case Opcode::SBfmB32: return "s_bfm_b32";

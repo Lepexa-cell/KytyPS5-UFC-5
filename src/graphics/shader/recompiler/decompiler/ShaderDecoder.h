@@ -96,6 +96,7 @@ enum class Opcode {
 	SAshrI32,
 	SMulI32,
 	SMulHiU32,
+	SMulHiI32,
 	SMulkI32,
 	SBfeU32,
 	SBfeU64,
