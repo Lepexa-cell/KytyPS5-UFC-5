@@ -396,6 +396,10 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	// a storage view, ensuring VK_IMAGE_USAGE_SAMPLED_BIT is always available
 	// for sampled view creation on mutable images.
 	normalized.usage = is_storage ? vk::ImageUsageFlagBits::eStorage : vk::ImageUsageFlagBits::eSampled;
+	if (DepthAspectTransferFormat(image.format) != vk::Format::eUndefined &&
+	    DepthAspectTransferFormat(normalized.format) != vk::Format::eUndefined) {
+		normalized.format = image.format;
+	}
 	const bool format_compatible = normalized.format != vk::Format::eUndefined &&
 	                               (IsCompatibleViewFormat(image.format, normalized.format) ||
 	                                IsDepthStencilFormatPair(image.format, normalized.format));
