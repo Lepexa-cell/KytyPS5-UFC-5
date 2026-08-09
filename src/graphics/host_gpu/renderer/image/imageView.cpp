@@ -57,6 +57,20 @@ namespace {
 	}
 }
 
+// Checks whether the view_format is a valid sampled view format for the
+// given depth image_format. This allows sampling depth textures (e.g.
+// D32_SFLOAT) with a single-component format (e.g. R32_SFLOAT) in shaders,
+// as permitted by the Vulkan specification.
+[[nodiscard]] bool IsSampledDepthViewFormat(vk::Format image_format, vk::Format view_format) {
+	switch (image_format) {
+		case vk::Format::eD16Unorm:
+		case vk::Format::eD16UnormS8Uint: return view_format == vk::Format::eR16Unorm;
+		case vk::Format::eD32Sfloat:
+		case vk::Format::eD32SfloatS8Uint: return view_format == vk::Format::eR32Sfloat;
+		default: return false;
+	}
+}
+
 [[nodiscard]] bool IsValidViewType(const VulkanImage& image, const ImageViewInfo& info) {
 	switch (image.image_type) {
 		case vk::ImageType::e1D:
@@ -374,6 +388,32 @@ bool FormatsCompatible(vk::Format base, vk::Format view) noexcept {
 
 } // namespace ImageViewOps
 
+// Normalizes the view type to match the image type when there is a mismatch.
+// This can happen when the texture cache reuses a 1x1x1 image of a different
+// type (e.g., a 2D image is reused for a 1D texture view request). Vulkan does
+// not allow creating 1D views of 2D images or vice versa, so we adapt the view
+// type to match the image's actual type.
+[[nodiscard]] vk::ImageViewType NormalizeViewType(const VulkanImage& image,
+                                                  vk::ImageViewType requested_type,
+                                                  uint32_t layer_count) {
+	// For 1D/2D images with a single layer, a 1D or 2D view type is valid.
+	// When the image is 1D and a 2D view is requested (or vice versa) for a
+	// single-layer image, adapt the view type to match the image type.
+	if (image.image_type == vk::ImageType::e1D && layer_count == 1 && image.layers == 1) {
+		if (requested_type == vk::ImageViewType::e2D ||
+		    requested_type == vk::ImageViewType::e2DArray) {
+			return vk::ImageViewType::e1D;
+		}
+	}
+	if (image.image_type == vk::ImageType::e2D && layer_count == 1 && image.layers == 1) {
+		if (requested_type == vk::ImageViewType::e1D ||
+		    requested_type == vk::ImageViewType::e1DArray) {
+			return vk::ImageViewType::e2D;
+		}
+	}
+	return requested_type;
+}
+
 vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	const auto& image      = backing;
 	auto        normalized = view_info;
@@ -400,9 +440,25 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	    DepthAspectTransferFormat(normalized.format) != vk::Format::eUndefined) {
 		normalized.format = image.format;
 	}
+	// Handle the case where a depth image is being viewed with its corresponding
+	// sampled view format (e.g. D32_SFLOAT image viewed as R32_SFLOAT for shader
+	// sampling). This is a valid Vulkan operation: the depth aspect is selected
+	// and the view format is the single-component format. The IsSampledDepthViewFormat
+	// check covers this case, and we set the aspect to eDepth (not eColor) so the
+	// view correctly targets the depth data.
+	if (DepthAspectTransferFormat(image.format) != vk::Format::eUndefined &&
+	    IsSampledDepthViewFormat(image.format, normalized.format)) {
+		normalized.aspect = vk::ImageAspectFlagBits::eDepth;
+	}
+	// Normalize the view type to match the image type when there is a mismatch.
+	// This happens when the texture cache reuses a 1x1x1 image of a different
+	// type (e.g. a 2D image is reused for a 1D texture view request via
+	// SameBacking's type-reuse exception for 1x1x1 extents).
+	normalized.type = NormalizeViewType(image, normalized.type, normalized.layer_count);
 	const bool format_compatible = normalized.format != vk::Format::eUndefined &&
 	                               (IsCompatibleViewFormat(image.format, normalized.format) ||
-	                                IsDepthStencilFormatPair(image.format, normalized.format));
+	                                IsDepthStencilFormatPair(image.format, normalized.format) ||
+	                                IsSampledDepthViewFormat(image.format, normalized.format));
 	const bool slice_view =
 	    image.image_type == vk::ImageType::e3D && (normalized.type == vk::ImageViewType::e2D ||
 	                                               normalized.type == vk::ImageViewType::e2DArray);
@@ -492,4 +548,4 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	return view;
 }
 
-} // namespace Libs::Graphics
+
