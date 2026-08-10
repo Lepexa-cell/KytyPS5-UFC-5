@@ -7,15 +7,8 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
-// Suppress deprecation warning for std::wstring_convert and std::codecvt_utf8_utf16
-// which are deprecated in C++17 but have no standard replacement.
-#ifndef _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
-#define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
-#endif
-#include <codecvt>
 #include <filesystem>
 #include <fmt/format.h>
-#include <locale>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -322,9 +315,48 @@ inline std::string SafeCsv(std::string_view text) {
 }
 
 inline std::string Utf16ToUtf8(const char16_t* utf16) {
-	std::u16string                                                    input(utf16);
-	std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
-	return convert.to_bytes(input);
+	std::string result;
+	if (utf16 == nullptr) {
+		return result;
+	}
+
+	for (const char16_t* p = utf16; *p != 0; ++p) {
+		const char32_t cp = static_cast<char32_t>(*p);
+
+		// Handle surrogate pairs
+		if (cp >= 0xD800 && cp <= 0xDBFF) {
+			const char32_t low = *(p + 1);
+			if (low >= 0xDC00 && low <= 0xDFFF) {
+				const char32_t codepoint = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+				result += static_cast<char>(0xF0 | (codepoint >> 18));
+				result += static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
+				result += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+				result += static_cast<char>(0x80 | (codepoint & 0x3F));
+				++p; // skip the low surrogate
+			} else {
+				// Invalid surrogate pair, emit replacement character
+				result += static_cast<char>(0xEF);
+				result += static_cast<char>(0xBF);
+				result += static_cast<char>(0xBD);
+			}
+		} else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+			// Unexpected low surrogate, emit replacement character
+			result += static_cast<char>(0xEF);
+			result += static_cast<char>(0xBF);
+			result += static_cast<char>(0xBD);
+		} else if (cp <= 0x7F) {
+			result += static_cast<char>(cp);
+		} else if (cp <= 0x7FF) {
+			result += static_cast<char>(0xC0 | (cp >> 6));
+			result += static_cast<char>(0x80 | (cp & 0x3F));
+		} else {
+			result += static_cast<char>(0xE0 | (cp >> 12));
+			result += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+			result += static_cast<char>(0x80 | (cp & 0x3F));
+		}
+	}
+
+	return result;
 }
 
 inline ByteBuffer HexToBin(std::string_view text) {

@@ -230,7 +230,7 @@ inline constexpr std::array<DepthFormatPolicy, 4> DEPTH_FORMAT_POLICIES {{
      Prospero::BufferFormat::k32Float,
      4,
      vk::Format::eR32Sfloat,
-     vk::Format::eD32Sfloat,Format::eD32SfloatS8Uint, vk::Format::eUndefined, vk::Format::eUndefined}},
+      vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eUndefined, vk::Format::eUndefined}},
     {Prospero::DepthFormat::kZ32F,
      Prospero::BufferFormat::k10_10_10_2UNorm,
      4,
