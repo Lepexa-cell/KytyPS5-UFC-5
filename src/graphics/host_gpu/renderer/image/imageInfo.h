@@ -219,7 +219,7 @@ struct DepthFormatPolicy {
 	std::array<vk::Format, 3> stencil_attachment_formats;
 };
 
-inline constexpr std::array<DepthFormatPolicy, 3> DEPTH_FORMAT_POLICIES {{
+inline constexpr std::array<DepthFormatPolicy, 4> DEPTH_FORMAT_POLICIES {{
     {Prospero::DepthFormat::kZ16,
      Prospero::BufferFormat::k16UNorm,
      2,
@@ -230,13 +230,18 @@ inline constexpr std::array<DepthFormatPolicy, 3> DEPTH_FORMAT_POLICIES {{
      Prospero::BufferFormat::k32Float,
      4,
      vk::Format::eR32Sfloat,
-     vk::Format::eD32Sfloat,
-     {vk::Format::eD32SfloatS8Uint, vk::Format::eUndefined, vk::Format::eUndefined}},
+     vk::Format::eD32Sfloat,Format::eD32SfloatS8Uint, vk::Format::eUndefined, vk::Format::eUndefined}},
     {Prospero::DepthFormat::kZ32F,
      Prospero::BufferFormat::k10_10_10_2UNorm,
      4,
      vk::Format::eA2B10G10R10UnormPack32,
      vk::Format::eD32SfloatS8Uint,
+     {vk::Format::eUndefined, vk::Format::eUndefined, vk::Format::eUndefined}},
+    {Prospero::DepthFormat::kZ32F,
+     Prospero::BufferFormat::k10_10_10_2UNorm,
+     4,
+     vk::Format::eA2B10G10R10UnormPack32,
+     vk::Format::eD32Sfloat,
      {vk::Format::eUndefined, vk::Format::eUndefined, vk::Format::eUndefined}},
 }};
 
@@ -244,16 +249,6 @@ inline constexpr std::array<DepthFormatPolicy, 3> DEPTH_FORMAT_POLICIES {{
 FindDepthFormatPolicy(uint32_t depth_format) noexcept {
 	for (const auto& policy: DEPTH_FORMAT_POLICIES) {
 		if (Prospero::GpuEnumValue(policy.depth_format) == depth_format) {
-			return &policy;
-		}
-	}
-	return nullptr;
-}
-
-[[nodiscard]] inline constexpr const DepthFormatPolicy*
-FindGuestDepthFormatPolicy(uint32_t guest_format) noexcept {
-	for (const auto& policy: DEPTH_FORMAT_POLICIES) {
-		if (Prospero::GpuEnumValue(policy.guest_format) == guest_format) {
 			return &policy;
 		}
 	}
@@ -327,10 +322,17 @@ inline bool ImageInfo::IsDepth() const noexcept {
 [[nodiscard]] inline constexpr bool IsSupportedSampledDepthFormat(vk::Format image_format,
                                                                   uint32_t   guest_format,
                                                                   vk::Format view_format) noexcept {
-	const auto* policy = FindGuestDepthFormatPolicy(guest_format);
-	return policy != nullptr && view_format == policy->sampled_view_format &&
-	       (image_format == policy->depth_attachment_format ||
-	        IsStencilAttachmentFormat(*policy, image_format));
+	for (const auto& policy: DEPTH_FORMAT_POLICIES) {
+		if (Prospero::GpuEnumValue(policy.guest_format) != guest_format) {
+			continue;
+		}
+		if (view_format == policy.sampled_view_format &&
+		    (image_format == policy.depth_attachment_format ||
+		     IsStencilAttachmentFormat(policy, image_format))) {
+			return true;
+		}
+	}
+	return false;
 }
 
 [[nodiscard]] inline constexpr bool IsSupportedSampledDepthFormat(vk::Format image_format,
@@ -345,10 +347,17 @@ inline bool ImageInfo::IsDepth() const noexcept {
 }
 
 [[nodiscard]] inline constexpr bool IsSupportedDepthTargetFormat(const ImageInfo& info) {
-	const auto* policy = FindGuestDepthFormatPolicy(info.guest_format);
-	return policy != nullptr && info.bytes_per_block == policy->bytes_per_element &&
-	       (info.HasStencil() ? IsStencilAttachmentFormat(*policy, info.pixel_format)
-	                          : info.pixel_format == policy->depth_attachment_format);
+	for (const auto& policy: DEPTH_FORMAT_POLICIES) {
+		if (Prospero::GpuEnumValue(policy.guest_format) != info.guest_format) {
+			continue;
+		}
+		if (info.bytes_per_block == policy.bytes_per_element &&
+		    (info.HasStencil() ? IsStencilAttachmentFormat(policy, info.pixel_format)
+		                       : info.pixel_format == policy.depth_attachment_format)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 [[nodiscard]] inline constexpr bool IsSupportedDepthPlaneReadback(const ImageInfo& info) {
