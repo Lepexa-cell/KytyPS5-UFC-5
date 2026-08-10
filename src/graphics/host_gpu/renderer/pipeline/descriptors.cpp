@@ -322,7 +322,7 @@ static void ValidateDepthTargetBinding(const ShaderRecompiler::IR::ImageResource
 	    image->info.pixel_format == static_cast<vk::Format>(126u) &&
 	    view_format == static_cast<vk::Format>(64u) &&
 	    descriptor.Format() == 50u &&
-	    resource.dimension == ShaderRecompiler::Decoder::ImageDimension::Dim3D;
+	    resource.dimension == ShaderRecompiler::Decoder::ImageDimension::Dim2D;
 	if (depth_d32_float_view) {
 		return;
 	}
