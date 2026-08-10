@@ -405,7 +405,7 @@ static bool IsSupportedStorageTextureDescriptor(const ShaderRecompiler::IR::Imag
 	    IsValidImageSwizzle(swizzle) &&
 	    (swizzle == DstSel(4, 5, 6, 7) || !resource.read || resource.atomic);
 	return (is_1d || is_1d_array || is_2d || is_2d_array || is_3d) && supported_tile &&
-	       descriptor.BaseLevel() == descriptor.LastLevel() &&
+	       descriptor.BaseLevel() <= descriptor.LastLevel() &&
 	       descriptor.LastLevel() <= descriptor.MaxMip() && descriptor.MinLod() == 0 &&
 	       supported_swizzle && descriptor.BCSwizzle() == 0 && !descriptor.MsaaDepth();
 }
@@ -652,7 +652,7 @@ RenderExecutor::ResolveTexture(const ShaderRecompiler::IR::ImageResource&   reso
 	}
 	const auto samples = multisampled ? 1u << last_level : 1u;
 	const auto view_levels =
-	    multisampled ? 1u : static_cast<uint32_t>(last_level - base_level) + 1u;
+	    (multisampled || storage) ? 1u : static_cast<uint32_t>(last_level - base_level) + 1u;
 	const auto depth  = static_cast<uint32_t>(descriptor.Depth()) + 1u;
 	const auto format = descriptor.Format();
 	const bool sampled_numeric_class =
