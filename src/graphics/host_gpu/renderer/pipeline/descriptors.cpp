@@ -317,6 +317,15 @@ static void ValidateDepthTargetBinding(const ShaderRecompiler::IR::ImageResource
 	if (depth_d24s8_packed_view) {
 		return;
 	}
+	const bool depth_d32_float_view =
+	    image != nullptr &&
+	    image->info.pixel_format == static_cast<vk::Format>(126u) &&
+	    view_format == static_cast<vk::Format>(64u) &&
+	    descriptor.Format() == 50u &&
+	    resource.dimension == ShaderRecompiler::Decoder::ImageDimension::Dim3D;
+	if (depth_d32_float_view) {
+		return;
+	}
 	const bool resource_ok = IsSupportedSampledDepthResource(resource);
 	const bool descriptor_ok =
 	    image != nullptr && IsSupportedDepthTargetDescriptor(descriptor, *image);
