@@ -270,15 +270,19 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	// HTile surface.
 	const auto metadata_addr = descriptor.MetaAddr() << 8u;
 	const bool no_htile = metadata_addr == 0;
+	// UFC 5 uses a non-zero default swizzle (0xfac = identity DstSel(4,5,6,7))
+	// for depth targets, and may also set the BC swizzle control bits. Accept
+	// the identity swizzle and any BC swizzle value for depth targets.
+	const bool identity_swizzle = descriptor.DstSelXYZW() == 0xfacu;
 	return image.info.IsDepth() && width == image.info.extent.width &&
 	       height == image.info.extent.height &&
 	       (supported_2d || supported_array || supported_cube || supported_msaa_2d ||
 	        supported_msaa_array) &&
 	       levels_ok && descriptor.MinLod() == 0 &&
 	       descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth) &&
-	       descriptor.BCSwizzle() == 0 && (no_htile || !descriptor.MsaaDepth() || multisampled) &&
+	       (descriptor.BCSwizzle() == 0 || identity_swizzle) &&
+	       (no_htile || !descriptor.MsaaDepth() || multisampled) &&
 	       pitch >= width && pitch == image.info.pitch;
-}
 
 bool IsSupportedDepthTextureEncoding(const ShaderTextureResource& descriptor, const Image& image) {
 	constexpr uint32_t field1_reserved_mask = 0x200fff00u;
