@@ -1291,13 +1291,14 @@ ImageId TextureCache::FindImageFromRange(uint64_t address, uint64_t size, bool e
 		if (owner == nullptr || owner->info.data.address != address) {
 			continue;
 		}
-		if (ensure_valid && owner->depth_id) {
-			owner = ResolveOwner(owner->depth_id);
+		const ImageId depth_id = owner->depth_id;
+		if (ensure_valid && depth_id) {
+			owner = ResolveOwner(depth_id);
 		}
 		if (owner == nullptr || (ensure_valid && !owner->SafeToDownload())) {
 			continue;
 		}
-		matches.push_back(id);
+		matches.push_back(depth_id ? depth_id : id);
 	}
 	ImageId selected {};
 	if (matches.size() == 1) {
@@ -1312,12 +1313,6 @@ ImageId TextureCache::FindImageFromRange(uint64_t address, uint64_t size, bool e
 		}
 	}
 	if (selected) {
-		if (ensure_valid) {
-			const auto owner = ResolveOwner(selected);
-			if (owner != nullptr && owner->depth_id) {
-				selected = owner->depth_id;
-			}
-		}
 		RetainImage(m_scheduler.Current(), selected);
 	}
 	return selected;
@@ -1646,11 +1641,12 @@ bool BufferCache::SynchronizeBufferFromImage(Buffer& buffer, uint64_t vaddr, uin
 		if (owner == nullptr || owner->info.data.address != vaddr) {
 			continue;
 		}
-		if (owner->depth_id) {
-			owner = m_texture_cache.ResolveOwner(owner->depth_id);
+		const ImageId depth_id = owner->depth_id;
+		if (depth_id) {
+			owner = m_texture_cache.ResolveOwner(depth_id);
 		}
 		if (owner != nullptr && owner->SafeToDownload()) {
-			matches.push_back(id);
+			matches.push_back(depth_id ? depth_id : id);
 		}
 	}
 
@@ -1668,10 +1664,6 @@ bool BufferCache::SynchronizeBufferFromImage(Buffer& buffer, uint64_t vaddr, uin
 	}
 	if (!selected) {
 		return false;
-	}
-	if (const auto owner = m_texture_cache.ResolveOwner(selected);
-	    owner != nullptr && owner->depth_id) {
-		selected = owner->depth_id;
 	}
 
 	auto& image = m_texture_cache.ResolveImage(selected);
