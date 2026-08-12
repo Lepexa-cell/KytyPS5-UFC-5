@@ -264,13 +264,19 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	              image.info.resources.levels == 1 && image.info.samples == samples
 	        : descriptor.BaseLevel() == 0 && descriptor.LastLevel() == 0 &&
 	              descriptor.MaxMip() == 0 && image.info.samples == 1;
+	// When the descriptor carries no HTile metadata address, the MsaaDepth flag
+	// (bit 10 of fields[6]) should not reject a non-multisampled target. This
+	// handles games like UFC 5 that set metadata control bits without an actual
+	// HTile surface.
+	const auto metadata_addr = descriptor.MetaAddr() << 8u;
+	const bool no_htile = metadata_addr == 0;
 	return image.info.IsDepth() && width == image.info.extent.width &&
 	       height == image.info.extent.height &&
 	       (supported_2d || supported_array || supported_cube || supported_msaa_2d ||
 	        supported_msaa_array) &&
 	       levels_ok && descriptor.MinLod() == 0 &&
 	       descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth) &&
-	       descriptor.BCSwizzle() == 0 && (!descriptor.MsaaDepth() || multisampled) &&
+	       descriptor.BCSwizzle() == 0 && (no_htile || !descriptor.MsaaDepth() || multisampled) &&
 	       pitch >= width && pitch == image.info.pitch;
 }
 
@@ -299,6 +305,13 @@ bool IsSupportedDepthTextureEncoding(const ShaderTextureResource& descriptor, co
 	constexpr uint32_t htile_control = 0x00280000u;
 	const uint32_t expected_control  = htile_control | (descriptor.MsaaDepth() ? (1u << 10u) : 0u);
 	const auto     metadata_addr     = descriptor.MetaAddr() << 8u;
+	// When the descriptor carries no HTile metadata address, the depth target is
+	// valid without image-side HTile metadata. This happens for games like UFC 5
+	// that create depth targets without HTile compression.
+	if (metadata_addr == 0) {
+		return descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth) &&
+		       image.info.tile_mode == Prospero::GpuEnumValue(Prospero::TileMode::kDepth);
+	}
 	return (descriptor.fields[6] & 0x00ffffffu) == expected_control && metadata_addr != 0 &&
 	       descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth) &&
 	       image.info.tile_mode == Prospero::GpuEnumValue(Prospero::TileMode::kDepth) &&
