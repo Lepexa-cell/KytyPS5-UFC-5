@@ -251,6 +251,12 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	    image.info.resources.layers % 6u == 0 &&
 	    static_cast<uint32_t>(descriptor.Depth()) + 1u == image.info.resources.layers &&
 	    descriptor.BaseArray5() == 0;
+	// UFC 5 may use a kCube descriptor with a single-layer depth texture. Allow
+	// this as a degenerate single-layer cube map for depth targets.
+	const bool supported_cube_single =
+	    type == Prospero::ImageType::kCube && width == height &&
+	    image.info.resources.layers == 1 && descriptor.Depth() == 0 &&
+	    descriptor.BaseArray5() == 0;
 	const bool supported_msaa_2d    = type == Prospero::ImageType::kColor2DMsaa &&
 	                                  image.info.resources.layers == 1 && descriptor.Depth() == 0 &&
 	                                  descriptor.BaseArray5() == 0;
@@ -276,8 +282,7 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	const bool identity_swizzle = descriptor.DstSelXYZW() == 0xfacu;
 	return image.info.IsDepth() && width == image.info.extent.width &&
 	       height == image.info.extent.height &&
-	       (supported_2d || supported_array || supported_cube || supported_msaa_2d ||
-	        supported_msaa_array) &&
+	       (supported_2d || supported_array || supported_cube || supported_cube_single || supported_msaa_2d || supported_msaa_array) &&
 	       levels_ok && descriptor.MinLod() == 0 &&
 	       descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth) &&
 	       (descriptor.BCSwizzle() == 0 || identity_swizzle) &&
