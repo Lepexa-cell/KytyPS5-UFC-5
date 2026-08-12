@@ -283,6 +283,7 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	       (descriptor.BCSwizzle() == 0 || identity_swizzle) &&
 	       (no_htile || !descriptor.MsaaDepth() || multisampled) &&
 	       pitch >= width && pitch == image.info.pitch;
+}
 
 bool IsSupportedDepthTextureEncoding(const ShaderTextureResource& descriptor, const Image& image) {
 	constexpr uint32_t field1_reserved_mask = 0x200fff00u;
