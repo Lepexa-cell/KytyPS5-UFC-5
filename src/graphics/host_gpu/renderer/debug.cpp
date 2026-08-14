@@ -607,12 +607,29 @@ static void ClipPrint(const char* func, const HW::ClipControl& c) {
 static void ClipCheck(const HW::ClipControl& c) {
 	// dx_linear_attr_clip_enable preserves linear (noperspective) attributes at clip-generated
 	// vertices, which Vulkan provides as part of clipping and interpolation.
-	EXIT_NOT_IMPLEMENTED(c.user_clip_planes != 0 || c.user_clip_plane_mode != 0 ||
-	                     c.vertex_kill_any || !c.IsZClipModeRepresentable() ||
-	                     c.user_clip_plane_negate_y || c.clip_disable ||
-	                     c.user_clip_plane_cull_only || c.cull_on_clipping_error_disable ||
-	                     c.force_viewport_index_from_vs_enable);
+	static std::atomic<uint32_t> log_count {0};
+	if (c.user_clip_planes != 0 || c.user_clip_plane_mode != 0 || c.vertex_kill_any ||
+	    !c.IsZClipModeRepresentable() || c.user_clip_plane_negate_y || c.clip_disable ||
+	    c.user_clip_plane_cull_only || c.cull_on_clipping_error_disable ||
+	    c.force_viewport_index_from_vs_enable) {
+		if (log_count.fetch_add(1) < 16) {
+			LOGF("\t warning: unsupported PS5 clip-control state, continuing with native Vulkan "
+			"clipping: user_clip_planes=0x%02" PRIx8 " user_clip_plane_mode=0x%02" PRIx8
+			     " vertex_kill_any=%s z_clip_mode_representable=%s user_clip_plane_negate_y=%s "
+			     "clip_disable=%s user_clip_plane_cull_only=%s cull_on_clipping_error_disable=%s "
+			     "force_viewport_index_from_vs_enable=%s\n",
+			     c.user_clip_planes, c.user_clip_plane_mode,
+			     c.vertex_kill_any ? "true" : "false",
+			     c.IsZClipModeRepresentable() ? "true" : "false",
+			     c.user_clip_plane_negate_y ? "true" : "false",
+			     c.clip_disable ? "true" : "false",
+			     c.user_clip_plane_cull_only ? "true" : "false",
+			     c.cull_on_clipping_error_disable ? "true" : "false",
+			     c.force_viewport_index_from_vs_enable ? "true" : "false");
+		}
+	}
 }
+
 
 static void RcPrint(const char* func, const HW::RenderControl& c) {
 	LOGF("%s\n", func);
