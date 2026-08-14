@@ -254,7 +254,7 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	// UFC 5 may use a kCube descriptor with a single-layer depth texture. Allow
 	// this as a degenerate single-layer cube map for depth targets.
 	const bool supported_cube_single =
-	    type == Prospero::ImageType::kCube && width == height &&
+	    type == Prospero::ImageType::kCube &&
 	    image.info.resources.layers == 1 && descriptor.Depth() == 0 &&
 	    descriptor.BaseArray5() == 0;
 	const bool supported_msaa_2d    = type == Prospero::ImageType::kColor2DMsaa &&
@@ -280,14 +280,28 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	// for depth targets, and may also set the BC swizzle control bits. Accept
 	// the identity swizzle and any BC swizzle value for depth targets.
 	const bool identity_swizzle = descriptor.DstSelXYZW() == 0xfacu;
-	return image.info.IsDepth() && width == image.info.extent.width &&
-	       height == image.info.extent.height &&
-	       (supported_2d || supported_array || supported_cube || supported_cube_single || supported_msaa_2d || supported_msaa_array) &&
-	       levels_ok && descriptor.MinLod() == 0 &&
-	       descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth) &&
-	       (descriptor.BCSwizzle() == 0 || identity_swizzle) &&
-	       (no_htile || !descriptor.MsaaDepth() || multisampled) &&
-	       pitch >= width && pitch == image.info.pitch;
+	const bool type_ok =
+	    supported_2d || supported_array || supported_cube || supported_cube_single ||
+	    supported_msaa_2d || supported_msaa_array;
+	const bool min_lod_ok       = descriptor.MinLod() == 0;
+	const bool tile_mode_ok     = descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth);
+	const bool bc_swizzle_ok    = descriptor.BCSwizzle() == 0 || identity_swizzle;
+	const bool htile_ok         = no_htile || !descriptor.MsaaDepth() || multisampled;
+	const bool pitch_ok         = pitch >= width && pitch == image.info.pitch;
+	const bool result = image.info.IsDepth() && width == image.info.extent.width &&
+	                    height == image.info.extent.height && type_ok && levels_ok && min_lod_ok &&
+	                    tile_mode_ok && bc_swizzle_ok && htile_ok && pitch_ok;
+	if (!result) {
+		LOGF("IsSupportedDepthTargetDescriptor validation failed: "
+		     "supported_2d=%d supported_array=%d supported_cube=%d supported_cube_single=%d "
+		     "supported_msaa_2d=%d supported_msaa_array=%d levels_ok=%d identity_swizzle=%d "
+		     "no_htile=%d multisampled=%d min_lod_ok=%d tile_mode_ok=%d bc_swizzle_ok=%d "
+		     "htile_ok=%d pitch_ok=%d result=%d",
+		     supported_2d, supported_array, supported_cube, supported_cube_single, supported_msaa_2d,
+		     supported_msaa_array, levels_ok, identity_swizzle, no_htile, multisampled, min_lod_ok,
+		     tile_mode_ok, bc_swizzle_ok, htile_ok, pitch_ok, result);
+	}
+	return result;
 }
 
 bool IsSupportedDepthTextureEncoding(const ShaderTextureResource& descriptor, const Image& image) {
@@ -770,7 +784,7 @@ static vk::Sampler NativeSampler(RenderContext&                       context,
 		                                       return pair.sampler == index &&
 		                                              pair.image < program.info.images.size() &&
 		                                              program.info.images[pair.image].depth_compare;
-	                                       });
+	                                           });
 	if (!depth_compare) {
 		descriptor.fields[0] &= ~(0x7u << 12u);
 	}
