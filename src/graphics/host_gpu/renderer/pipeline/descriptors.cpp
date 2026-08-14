@@ -285,9 +285,9 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	    supported_msaa_2d || supported_msaa_array;
 	const bool min_lod_ok       = descriptor.MinLod() == 0;
 	const bool tile_mode_ok     = descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth);
-	const bool bc_swizzle_ok    = descriptor.BCSwizzle() == 0 || identity_swizzle;
-	const bool htile_ok         = no_htile || !descriptor.MsaaDepth() || multisampled;
-	const bool pitch_ok         = pitch >= width && pitch == image.info.pitch;
+	const bool bc_swizzle_ok    = IsValidImageSwizzle(descriptor.DstSelXYZW());
+	const bool htile_ok         = no_htile || image.info.samples == samples;
+	const bool pitch_ok         = pitch >= width;
 	const bool result = image.info.IsDepth() && width == image.info.extent.width &&
 	                    height == image.info.extent.height && type_ok && levels_ok && min_lod_ok &&
 	                    tile_mode_ok && bc_swizzle_ok && htile_ok && pitch_ok;
