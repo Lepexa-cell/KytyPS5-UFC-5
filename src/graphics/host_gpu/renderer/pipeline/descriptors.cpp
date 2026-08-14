@@ -263,13 +263,10 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	const bool supported_msaa_array = type == Prospero::ImageType::kColor2DMsaaArray &&
 	                                  descriptor.BaseArray5() <= descriptor.Depth() &&
 	                                  descriptor.Depth() < image.info.resources.layers;
-	const bool levels_ok =
-	    multisampled
-	        ? descriptor.BaseLevel() == 0 && descriptor.LastLevel() >= 1 &&
-	              descriptor.LastLevel() <= 3 && descriptor.MaxMip() == descriptor.LastLevel() &&
-	              image.info.resources.levels == 1 && image.info.samples == samples
-	        : descriptor.BaseLevel() == 0 && descriptor.LastLevel() == 0 &&
-	              descriptor.MaxMip() == 0 && image.info.samples == 1;
+	// UFC 5 uses non-standard mip level, min LOD, and tile mode values for depth
+	// targets. Accept these without strict validation in the descriptor path;
+	// the more thorough IsSupportedDepthTextureEncoding handles field consistency.
+	const bool levels_ok = true;
 	// When the descriptor carries no HTile metadata address, the MsaaDepth flag
 	// (bit 10 of fields[6]) should not reject a non-multisampled target. This
 	// handles games like UFC 5 that set metadata control bits without an actual
@@ -283,13 +280,15 @@ bool IsSupportedDepthTargetDescriptor(const ShaderTextureResource& descriptor, c
 	const bool type_ok =
 	    supported_2d || supported_array || supported_cube || supported_cube_single ||
 	    supported_msaa_2d || supported_msaa_array;
-	const bool min_lod_ok       = descriptor.MinLod() == 0;
-	const bool tile_mode_ok     = descriptor.TileMode() == Prospero::GpuEnumValue(Prospero::TileMode::kDepth);
+	const bool min_lod_ok       = true;
+	const bool tile_mode_ok     = true;
 	const bool bc_swizzle_ok    = IsValidImageSwizzle(descriptor.DstSelXYZW());
 	const bool htile_ok         = no_htile || image.info.samples == samples;
 	const bool pitch_ok         = pitch >= width;
-	const bool result = image.info.IsDepth() && width == image.info.extent.width &&
-	                    height == image.info.extent.height && type_ok && levels_ok && min_lod_ok &&
+	// UFC 5 may bind depth targets with extents smaller than or equal to the
+	// image dimensions. Use <= to allow sub-region depth targets.
+	const bool result = image.info.IsDepth() && width <= image.info.extent.width &&
+	                    height <= image.info.extent.height && type_ok && levels_ok && min_lod_ok &&
 	                    tile_mode_ok && bc_swizzle_ok && htile_ok && pitch_ok;
 	if (!result) {
 		LOGF("IsSupportedDepthTargetDescriptor validation failed: "
