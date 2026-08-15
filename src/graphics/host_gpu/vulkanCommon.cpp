@@ -81,6 +81,7 @@ constexpr FormatMapping kFormatMappings[] = {
     {Prospero::BufferFormat::kBc7UNorm, vk::Format::eBc7UnormBlock},
     {Prospero::BufferFormat::kBc7Srgb, vk::Format::eBc7SrgbBlock},
     {static_cast<Prospero::BufferFormat>(97), vk::Format::eR16G16Sfloat},
+    {static_cast<Prospero::BufferFormat>(37), vk::Format::eR32G32Sfloat},
 };
 
 constexpr auto MakeFormatLookup() {

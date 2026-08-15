@@ -81,6 +81,7 @@ constexpr FormatInfo kFormatInfo[] = {
     {GpuEnumValue(BufferFormat::kBc7UNorm), 0, 16, 0, true, false},
     {GpuEnumValue(BufferFormat::kBc7Srgb), 0, 16, 0, true, false},
     {97, 4, 0, 4, true, false},
+    {37, 8, 0, 4, true, false},
 };
 
 constexpr auto MakeFormatInfoLookup() {

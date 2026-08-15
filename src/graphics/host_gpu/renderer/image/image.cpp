@@ -106,6 +106,14 @@ void ValidateRange(GuestRange range, const char* name) {
 	if (DepthAspectTransferFormat(vulkan_fmt) != vk::Format::eUndefined) {
 		return vk::Format::eD32Sfloat;
 	}
+	// Explicitly handle guest format 37 (GNM/Prospero 10_11_11 float):
+	// if the primary VulkanFormat mapping (R32G32_SFLOAT) fails to create
+	// an image, fall back to R8G8B8A8_UNORM as a safe host format. This must
+	// differ from the primary mapping so the fallback path in the caller
+	// doesn't trigger the "failed to create image" EXIT.
+	if (guest_format == 37) {
+		return vk::Format::eR8G8B8A8Unorm;
+	}
 	return vk::Format::eR8G8B8A8Unorm;
 }
 
