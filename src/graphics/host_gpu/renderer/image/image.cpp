@@ -1,6 +1,7 @@
-#include "graphics/host_gpu/renderer/image/image.h"
+﻿#include "graphics/host_gpu/renderer/image/image.h"
 
 #include "common/assert.h"
+#include "common/logging/log.h"
 #include "common/profiler.h"
 #include "graphics/host_gpu/renderer/cache/streamBuffer.h"
 #include "graphics/host_gpu/renderer/commandScheduler.h"
@@ -90,6 +91,22 @@ void ValidateRange(GuestRange range, const char* name) {
 		     static_cast<unsigned long long>(range.address),
 		     static_cast<unsigned long long>(range.size));
 	}
+}
+
+// Returns a fallback Vulkan format to use when the guest format cannot be
+// represented in Vulkan (e.g. the format was unmapped in VulkanFormat), or when
+// vkCreateImage fails for the original format. For block-compressed formats we
+// fall back to R8G8B8A8_UNORM with matching element size; for depth formats we
+// fall back to D32_SFLOAT; otherwise R8G8B8A8_UNORM is used.
+[[nodiscard]] vk::Format FallbackFormat(uint32_t guest_format) {
+	if (Prospero::BlockCompressedBytesPerBlock(guest_format) != 0) {
+		return vk::Format::eR8G8B8A8Unorm;
+	}
+	const auto vulkan_fmt = VulkanFormat(guest_format);
+	if (DepthAspectTransferFormat(vulkan_fmt) != vk::Format::eUndefined) {
+		return vk::Format::eD32Sfloat;
+	}
+	return vk::Format::eR8G8B8A8Unorm;
 }
 
 } // namespace
@@ -721,18 +738,60 @@ Image::Image(GraphicContext& graphics, CommandScheduler& scheduler, const ImageI
 	                                      create.usage, create.flags,
 	                                      &properties) != vk::Result::eSuccess ||
 	    !static_cast<bool>(properties.sampleCounts & create.samples)) {
-		EXIT("image format does not support required usage: format=%d type=%d usage=0x%x "
-		     "flags=0x%x samples=%u\n",
-		     static_cast<int>(create.format), static_cast<int>(create.imageType),
-		     static_cast<vk::ImageUsageFlags::MaskType>(create.usage),
-		     static_cast<vk::ImageCreateFlags::MaskType>(create.flags), backing.samples);
+		const auto fallback = FallbackFormat(info.guest_format);
+		LOGF_COLOR(Log::Color::Yellow, "Image: format %d unsupported by Vulkan, attempting "
+		                                      "fallback to %s for extent=%ux%ux%u\n",
+		           info.guest_format, VulkanToString(fallback).c_str(),
+		           create.extent.width, create.extent.height, create.extent.depth);
+		backing.format       = fallback;
+		create.format        = fallback;
+		formats              = ImageViewOps::CompatibleFormats(backing.format);
+		if (static_cast<bool>(create.flags & vk::ImageCreateFlagBits::eMutableFormat) &&
+		    formats.size() > 1) {
+			format_list.pNext           = create.pNext;
+			format_list.viewFormatCount = static_cast<uint32_t>(formats.size());
+			format_list.pViewFormats    = formats.data();
+			create.pNext                = &format_list;
+		}
+		if (graphics.GetImageFormatProperties(create.format, create.imageType, create.tiling,
+		                                      create.usage, create.flags,
+		                                      &properties) != vk::Result::eSuccess ||
+		    !static_cast<bool>(properties.sampleCounts & create.samples)) {
+			EXIT("image format does not support required usage: format=%d type=%d usage=0x%x "
+			     "flags=0x%x samples=%u\n",
+			     static_cast<int>(create.format), static_cast<int>(create.imageType),
+			     static_cast<vk::ImageUsageFlags::MaskType>(create.usage),
+			     static_cast<vk::ImageCreateFlags::MaskType>(create.flags), backing.samples);
+		}
 	}
 
 	backing.memory.property = vk::MemoryPropertyFlagBits::eDeviceLocal;
 	if (!graphics.CreateImage(create, backing)) {
-		EXIT("failed to create image: extent=%ux%ux%u format=%d layers=%u levels=%u\n",
-		     create.extent.width, create.extent.height, create.extent.depth,
-		     static_cast<int>(create.format), create.arrayLayers, create.mipLevels);
+		const auto fallback = FallbackFormat(info.guest_format);
+		if (fallback == backing.format) {
+			EXIT("failed to create image: extent=%ux%ux%u format=%d layers=%u levels=%u\n",
+			     create.extent.width, create.extent.height, create.extent.depth,
+			     static_cast<int>(create.format), create.arrayLayers, create.mipLevels);
+		}
+		LOGF_COLOR(Log::Color::Yellow, "Image: create failed for format %d, attempting "
+		                                      "fallback to %s for extent=%ux%ux%u\n",
+		           static_cast<int>(backing.format), VulkanToString(fallback).c_str(),
+		           create.extent.width, create.extent.height, create.extent.depth);
+		backing.format       = fallback;
+		create.format        = fallback;
+		formats              = ImageViewOps::CompatibleFormats(backing.format);
+		if (static_cast<bool>(create.flags & vk::ImageCreateFlagBits::eMutableFormat) &&
+		    formats.size() > 1) {
+			format_list.pNext           = create.pNext;
+			format_list.viewFormatCount = static_cast<uint32_t>(formats.size());
+			format_list.pViewFormats    = formats.data();
+			create.pNext                = &format_list;
+		}
+		if (!graphics.CreateImage(create, backing)) {
+			EXIT("failed to create image: extent=%ux%ux%u format=%d layers=%u levels=%u\n",
+			     create.extent.width, create.extent.height, create.extent.depth,
+			     static_cast<int>(create.format), create.arrayLayers, create.mipLevels);
+		}
 	}
 }
 
@@ -775,3 +834,4 @@ Image::~Image() {
 }
 
 } // namespace Libs::Graphics
+

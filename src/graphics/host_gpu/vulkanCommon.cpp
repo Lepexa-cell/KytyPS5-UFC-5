@@ -80,10 +80,11 @@ constexpr FormatMapping kFormatMappings[] = {
     {Prospero::BufferFormat::kBc6SFloat, vk::Format::eBc6HSfloatBlock},
     {Prospero::BufferFormat::kBc7UNorm, vk::Format::eBc7UnormBlock},
     {Prospero::BufferFormat::kBc7Srgb, vk::Format::eBc7SrgbBlock},
+    {static_cast<Prospero::BufferFormat>(97), vk::Format::eR16G16Sfloat},
 };
 
 constexpr auto MakeFormatLookup() {
-	constexpr auto kMaxFormat = Prospero::GpuEnumValue(Prospero::BufferFormat::kBc7Srgb);
+	constexpr auto kMaxFormat = std::max(Prospero::GpuEnumValue(Prospero::BufferFormat::kBc7Srgb), 97u);
 	std::array<vk::Format, kMaxFormat + 1> lookup {};
 	lookup.fill(vk::Format::eUndefined);
 	for (const auto& mapping: kFormatMappings) {

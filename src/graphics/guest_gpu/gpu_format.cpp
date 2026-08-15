@@ -80,10 +80,11 @@ constexpr FormatInfo kFormatInfo[] = {
     {GpuEnumValue(BufferFormat::kBc6SFloat), 0, 16, 0, true, false},
     {GpuEnumValue(BufferFormat::kBc7UNorm), 0, 16, 0, true, false},
     {GpuEnumValue(BufferFormat::kBc7Srgb), 0, 16, 0, true, false},
+    {97, 4, 0, 4, true, false},
 };
 
 constexpr auto MakeFormatInfoLookup() {
-	constexpr uint32_t                            kMaxFormat = GpuEnumValue(BufferFormat::kBc7Srgb);
+	constexpr uint32_t kMaxFormat = std::max(GpuEnumValue(BufferFormat::kBc7Srgb), 97u);
 	std::array<const FormatInfo*, kMaxFormat + 1> lookup {};
 	for (const auto& info: kFormatInfo) {
 		lookup[info.format] = &info;
