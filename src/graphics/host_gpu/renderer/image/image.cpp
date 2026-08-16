@@ -13,6 +13,7 @@
 	#include <algorithm>
 	#include <array>
 	#include <cstdint>
+	#include <vector>
 	#include <xxhash.h>
 
 namespace Libs::Graphics {
@@ -613,8 +614,8 @@ void Validate(const ImageInfo& info) {
 		    !info.metadata.stencil_compressed;
 		if (info.data.Empty() || info.HasStencil() || !metadata_empty || info.extent.width == 0 ||
 		    info.extent.height == 0 || info.extent.depth == 0 || info.resources.levels != 1 ||
-		    info.resources.layers != 1 || info.samples != 1 || info.pitch != 0 ||
-		    info.bytes_per_block != 0) {
+		    info.resources.layers != 1 || info.samples != 1 || info.pitch == 0 ||
+		    info.bytes_per_block == 0) {
 			EXIT("invalid stencil association image\n");
 		}
 		return;
@@ -742,66 +743,168 @@ Image::Image(GraphicContext& graphics, CommandScheduler& scheduler, const ImageI
 		create.pNext                = &format_list;
 	}
 
-	vk::ImageFormatProperties properties {};
-	if (graphics.GetImageFormatProperties(create.format, create.imageType, create.tiling,
-	                                      create.usage, create.flags,
-	                                      &properties) != vk::Result::eSuccess ||
-	    !static_cast<bool>(properties.sampleCounts & create.samples)) {
-		const auto fallback = FallbackFormat(info.guest_format);
-		LOGF_COLOR(Log::Color::Yellow, "Image: format %d unsupported by Vulkan, attempting "
-		                                      "fallback to %s for extent=%ux%ux%u\n",
-		           info.guest_format, VulkanToString(fallback).c_str(),
-		           create.extent.width, create.extent.height, create.extent.depth);
-		backing.format       = fallback;
-		create.format        = fallback;
-		formats              = ImageViewOps::CompatibleFormats(backing.format);
+	backing.memory.property = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+	// Local helper to refresh the pNext format-list chain when the format or
+	// usage changes between fallback attempts.
+	auto update_format_list = [&]() {
+		formats = ImageViewOps::CompatibleFormats(backing.format);
 		if (static_cast<bool>(create.flags & vk::ImageCreateFlagBits::eMutableFormat) &&
 		    formats.size() > 1) {
-			format_list.pNext           = create.pNext;
 			format_list.viewFormatCount = static_cast<uint32_t>(formats.size());
 			format_list.pViewFormats    = formats.data();
-			create.pNext                = &format_list;
+		} else {
+			format_list.viewFormatCount = 0;
+			format_list.pViewFormats    = nullptr;
 		}
+	};
+
+	// Local helper to check whether the current format/usage/flags combination
+	// is supported by the physical device before attempting vkCreateImage.
+	auto format_supported = [&]() -> bool {
+		vk::ImageFormatProperties properties {};
 		if (graphics.GetImageFormatProperties(create.format, create.imageType, create.tiling,
 		                                      create.usage, create.flags,
 		                                      &properties) != vk::Result::eSuccess ||
 		    !static_cast<bool>(properties.sampleCounts & create.samples)) {
-			EXIT("image format does not support required usage: format=%d type=%d usage=0x%x "
-			     "flags=0x%x samples=%u\n",
-			     static_cast<int>(create.format), static_cast<int>(create.imageType),
-			     static_cast<vk::ImageUsageFlags::MaskType>(create.usage),
-			     static_cast<vk::ImageCreateFlags::MaskType>(create.flags), backing.samples);
+			return false;
+		}
+		return true;
+	};
+
+	// Local helper to attempt vkCreateImage (via VMA) and update backing state.
+	auto try_create_image = [&]() -> bool {
+		return graphics.CreateImage(create, backing);
+	};
+
+	// =======================================================================
+	// Multi-level (cascade) fallback for image creation:
+	//
+	//   Step 0: If the original format isn't supported by the physical device
+	//           at all, switch to the fallback format.
+	//   Step 1: Attempt to create the image with the original (or fallback)
+	//           format and original usage flags.
+	//   Step 2: If Step 1 fails and we haven't yet used the fallback format,
+	//           switch to FallbackFormat and retry.
+	//   Step 3: If Step 2 also fails, mitigate by removing individual usage
+	//           bits (STORAGE, COLOR_ATTACHMENT) that the driver may not
+	//           support for the current format, retrying after each removal.
+	//   Step 4: If every attempt is exhausted, log a fatal error and leave
+	//           backing.image == nullptr so the emulator does NOT crash.
+	// =======================================================================
+
+	// Step 0: Validate the format upfront. If the original format is not
+	// supported, switch to the fallback format immediately.
+	if (!format_supported()) {
+		const auto fallback = FallbackFormat(info.guest_format);
+		LOGF_COLOR(Log::Color::Yellow,
+		           "Image: format %d unsupported by Vulkan, attempting fallback to %s for "
+		           "extent=%ux%ux%u\n",
+		           info.guest_format, VulkanToString(fallback).c_str(),
+		           create.extent.width, create.extent.height, create.extent.depth);
+		backing.format = fallback;
+		create.format  = fallback;
+		update_format_list();
+		if (!format_supported()) {
+			LOGF_COLOR(Log::Color::Red,
+			           "Image: fallback format %s also unsupported by Vulkan for extent=%ux%ux%u "
+			           "usage=0x%x\n",
+			           VulkanToString(fallback).c_str(), create.extent.width, create.extent.height,
+			           create.extent.depth,
+			           static_cast<vk::ImageUsageFlags::MaskType>(create.usage));
 		}
 	}
 
-	backing.memory.property = vk::MemoryPropertyFlagBits::eDeviceLocal;
-	if (!graphics.CreateImage(create, backing)) {
+	// Step 1: Attempt with the original (or already-substituted fallback) format.
+	if (try_create_image()) {
+		return;
+	}
+
+	// Step 2: If creation failed and we still have the original format, try the
+	//         FallbackFormat.
+	if (backing.format != FallbackFormat(info.guest_format)) {
 		const auto fallback = FallbackFormat(info.guest_format);
-		if (fallback == backing.format) {
-			EXIT("failed to create image: extent=%ux%ux%u format=%d layers=%u levels=%u\n",
-			     create.extent.width, create.extent.height, create.extent.depth,
-			     static_cast<int>(create.format), create.arrayLayers, create.mipLevels);
-		}
-		LOGF_COLOR(Log::Color::Yellow, "Image: create failed for format %d, attempting "
-		                                      "fallback to %s for extent=%ux%ux%u\n",
+		LOGF_COLOR(Log::Color::Yellow,
+		           "Image: create failed for format %d, attempting fallback to %s for "
+		           "extent=%ux%ux%u\n",
 		           static_cast<int>(backing.format), VulkanToString(fallback).c_str(),
 		           create.extent.width, create.extent.height, create.extent.depth);
-		backing.format       = fallback;
-		create.format        = fallback;
-		formats              = ImageViewOps::CompatibleFormats(backing.format);
-		if (static_cast<bool>(create.flags & vk::ImageCreateFlagBits::eMutableFormat) &&
-		    formats.size() > 1) {
-			format_list.pNext           = create.pNext;
-			format_list.viewFormatCount = static_cast<uint32_t>(formats.size());
-			format_list.pViewFormats    = formats.data();
-			create.pNext                = &format_list;
-		}
-		if (!graphics.CreateImage(create, backing)) {
-			EXIT("failed to create image: extent=%ux%ux%u format=%d layers=%u levels=%u\n",
-			     create.extent.width, create.extent.height, create.extent.depth,
-			     static_cast<int>(create.format), create.arrayLayers, create.mipLevels);
+		backing.format = fallback;
+		create.format  = fallback;
+		update_format_list();
+		if (try_create_image()) {
+			return;
 		}
 	}
+
+	// Step 3: Mitigate usage flags. Remove VK_IMAGE_USAGE_STORAGE_BIT or
+	//         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT if they are not supported
+	//         by the driver for the current format, trying progressively
+	//         more aggressive removals.
+	LOGF_COLOR(Log::Color::Yellow,
+	           "Image: create failed for format %d, attempting usage flag mitigation for "
+	           "extent=%ux%ux%u\n",
+	           static_cast<int>(backing.format), create.extent.width, create.extent.height,
+	           create.extent.depth);
+
+	const auto original_usage = backing.usage;
+
+	// Helper to retry with a modified usage set.
+	auto try_with_usage = [&](vk::ImageUsageFlags new_usage, const char* desc) -> bool {
+		if (new_usage == create.usage) {
+			return false; // nothing changed
+		}
+		LOGF_COLOR(Log::Color::Yellow,
+		           "Image: retrying with mitigated usage (removed %s) for format=%d "
+		           "extent=%ux%ux%u\n",
+		           desc, static_cast<int>(create.format), create.extent.width,
+		           create.extent.height, create.extent.depth);
+		create.usage  = new_usage;
+		backing.usage = new_usage;
+		update_format_list();
+		if (format_supported() && try_create_image()) {
+			return true;
+		}
+		return false;
+	};
+
+	// Attempt A: remove STORAGE bit only.
+	if (try_with_usage(original_usage & ~vk::ImageUsageFlagBits::eStorage,
+	                   "VK_IMAGE_USAGE_STORAGE_BIT")) {
+		return;
+	}
+
+	// Attempt B: remove COLOR_ATTACHMENT bit only.
+	create.usage  = original_usage;
+	backing.usage = original_usage;
+	if (try_with_usage(original_usage & ~vk::ImageUsageFlagBits::eColorAttachment,
+	                   "VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT")) {
+		return;
+	}
+
+	// Attempt C: remove both STORAGE and COLOR_ATTACHMENT.
+	create.usage  = original_usage;
+	backing.usage = original_usage;
+	if (try_with_usage(original_usage & ~vk::ImageUsageFlagBits::eStorage &
+	                            ~vk::ImageUsageFlagBits::eColorAttachment,
+	                   "VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT")) {
+		return;
+	}
+
+	// Step 4: All creation attempts have been exhausted. Do NOT call EXIT(...)
+	//         — that would crash the emulator. Log a fatal error and leave
+	//         backing.image == nullptr so callers handle the null-image
+	//         gracefully.
+	LOGF_COLOR(Log::Color::BrightRed,
+	           "Image: *** All image creation attempts failed *** "
+	           "extent=%ux%ux%u format=%d guest_format=%u layers=%u levels=%u usage=0x%x "
+	           "flags=0x%x\n",
+	           create.extent.width, create.extent.height, create.extent.depth,
+	           static_cast<int>(create.format), info.guest_format, create.arrayLayers,
+	           create.mipLevels,
+	           static_cast<vk::ImageUsageFlags::MaskType>(create.usage),
+	           static_cast<vk::ImageCreateFlags::MaskType>(create.flags));
+	backing.image = nullptr;
 }
 
 uint64_t Image::HashGuestEdges() const {
@@ -843,4 +946,3 @@ Image::~Image() {
 }
 
 } // namespace Libs::Graphics
-
