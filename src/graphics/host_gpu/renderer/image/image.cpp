@@ -1,18 +1,19 @@
 ﻿#include "graphics/host_gpu/renderer/image/image.h"
 
-#include "common/assert.h"
-#include "common/logging/log.h"
-#include "common/profiler.h"
-#include "graphics/host_gpu/renderer/cache/streamBuffer.h"
-#include "graphics/host_gpu/renderer/commandScheduler.h"
-#include "graphics/host_gpu/renderer/image/imageView.h"
-#include "graphics/host_gpu/renderer/renderTarget.h"
-#include "kernel/memory.h"
+	#include "common/assert.h"
+	#include "common/logging/log.h"
+	#include "common/profiler.h"
+	#include "graphics/guest_gpu/gpu_format.h"
+	#include "graphics/host_gpu/renderer/cache/streamBuffer.h"
+	#include "graphics/host_gpu/renderer/commandScheduler.h"
+	#include "graphics/host_gpu/renderer/image/imageView.h"
+	#include "graphics/host_gpu/renderer/renderTarget.h"
+	#include "kernel/memory.h"
 
-#include <algorithm>
-#include <array>
-#include <cstdint>
-#include <xxhash.h>
+	#include <algorithm>
+	#include <array>
+	#include <cstdint>
+	#include <xxhash.h>
 
 namespace Libs::Graphics {
 

@@ -1,10 +1,14 @@
 #include "graphics/host_gpu/renderer/image/imageView.h"
 
 #include "common/assert.h"
+#include "common/logging/log.h"
+#include "graphics/guest_gpu/gpu_format.h"
 #include "graphics/host_gpu/graphicContext.h"
 #include "graphics/host_gpu/renderer/image/image.h"
 
+#include <algorithm>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 namespace Libs::Graphics {
@@ -79,11 +83,11 @@ namespace {
 				case vk::ImageViewType::eCube:
 					return static_cast<bool>(image.flags &
 					                         vk::ImageCreateFlagBits::eCubeCompatible) &&
-					       info.base_layer % 6 == 0 && info.layer_count == 6;
+				       info.base_layer % 6 == 0 && info.layer_count == 6;
 				case vk::ImageViewType::eCubeArray:
 					return static_cast<bool>(image.flags &
 					                         vk::ImageCreateFlagBits::eCubeCompatible) &&
-					       info.base_layer % 6 == 0 && info.layer_count % 6 == 0;
+				       info.base_layer % 6 == 0 && info.layer_count % 6 == 0;
 				default: return false;
 			}
 		case vk::ImageType::e3D:
@@ -92,11 +96,11 @@ namespace {
 				case vk::ImageViewType::e2D:
 					return static_cast<bool>(image.flags &
 					                         vk::ImageCreateFlagBits::e2DArrayCompatible) &&
-					       info.level_count == 1 && info.layer_count == 1;
+				       info.level_count == 1 && info.layer_count == 1;
 				case vk::ImageViewType::e2DArray:
 					return static_cast<bool>(image.flags &
 					                         vk::ImageCreateFlagBits::e2DArrayCompatible) &&
-					       info.level_count == 1;
+				       info.level_count == 1;
 				default: return false;
 			}
 		default: return false;
@@ -335,7 +339,11 @@ vk::ImageAspectFlags DepthAspectMask(vk::Format format) {
 // VkImageFormatListCreateInfo when creating mutable images, enabling format
 // reinterpretation between compatible depth and depth+stencil variants
 // (e.g. D32_SFLOAT_S8_UINT <-> D32_SFLOAT, D24_UNORM_S8_UINT <-> X8_D24_UNORM_PACK32).
+// Formats with different byte sizes (e.g. D32_SFLOAT which is 4 bytes vs
+// D32_SFLOAT_S8_UINT which is 5 bytes) are filtered out to avoid driver errors
+// when creating images with VkImageFormatListCreateInfo.
 [[nodiscard]] std::vector<vk::Format> CompatibleFormats(vk::Format format) {
+	const auto target_bytes = Prospero::VulkanBytesPerElement(format);
 	std::vector<vk::Format> result {format};
 	switch (format) {
 		case vk::Format::eD32Sfloat:
@@ -354,6 +362,24 @@ vk::ImageAspectFlags DepthAspectMask(vk::Format format) {
 			result.push_back(vk::Format::eD16UnormS8Uint);
 			break;
 		default: break;
+	}
+	// Filter out duplicate entries and formats with different byte sizes from
+	// the primary format. This prevents the Vulkan driver from rejecting
+	// vkCreateImage when the format list contains incompatible sizes.
+	if (target_bytes != 0) {
+		std::vector<vk::Format> filtered;
+		filtered.reserve(result.size());
+		for (const auto& f : result) {
+			if (f == format || f == result.front()) {
+				filtered.push_back(f);
+				continue;
+			}
+			const auto f_bytes = Prospero::VulkanBytesPerElement(f);
+			if (f_bytes == 0 || f_bytes == target_bytes) {
+				filtered.push_back(f);
+			}
+		}
+		result = std::move(filtered);
 	}
 	return result;
 }
@@ -449,10 +475,38 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	// type (e.g. a 2D image is reused for a 1D texture view request via
 	// SameBacking's type-reuse exception for 1x1x1 extents).
 	normalized.type = NormalizeViewType(image, normalized.type, normalized.layer_count);
+
+	// Check whether the requested view format is compatible with the image's
+	// format. Formats are compatible when they belong to the same Vulkan
+	// compatibility class (i.e. have the same bytes-per-element / block size)
+	// and the image was created with VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT. As a
+	// safety net, we also reject format reinterpretations where the bytes-per-
+	// element of the view format differs from the image format, because the
+	// driver will refuse such views on the image's compatible format list.
+	const bool same_bytes_per_element =
+	    Prospero::NumBytesPerElement(view_info.guest_format) == 0 ||
+	    Prospero::NumBytesPerElement(view_info.guest_format) ==
+	        Prospero::NumBytesPerElement(info.guest_format);
 	const bool format_compatible = normalized.format != vk::Format::eUndefined &&
+	                               same_bytes_per_element &&
 	                               (IsCompatibleViewFormat(image.format, normalized.format) ||
 	                                IsDepthStencilFormatPair(image.format, normalized.format) ||
 	                                IsSampledDepthViewFormat(image.format, normalized.format));
+
+	// Safety fallback: if the view format is not compatible (e.g. mismatched
+	// bytes-per-element between image and view formats — this happens with
+	// guest format 37 -> R32G32_SFLOAT (8 bytes) being viewed as format 97 ->
+	// R16G16_SFLOAT (4 bytes)), fall back to using the image's original format
+	// rather than crashing. This ensures the view is always creatable.
+	const vk::Format original_view_format = normalized.format;
+	if (!format_compatible) {
+		LOGF_COLOR(Log::Color::Yellow,
+		           "FindView: view_format=%d incompatible with image_format=%d, falling back "
+		           "to image format\n",
+		           static_cast<int>(original_view_format), static_cast<int>(image.format));
+		normalized.format = image.format;
+		normalized.aspect = FullAspectMask(image.format);
+	}
 	const bool slice_view =
 	    image.image_type == vk::ImageType::e3D && (normalized.type == vk::ImageViewType::e2D ||
 	                                               normalized.type == vk::ImageViewType::e2DArray);
@@ -468,7 +522,7 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	const bool mapping_valid =
 	    IsComponentSwizzle(normalized.mapping.r) && IsComponentSwizzle(normalized.mapping.g) &&
 	    IsComponentSwizzle(normalized.mapping.b) && IsComponentSwizzle(normalized.mapping.a);
-	if (image.image == nullptr || !format_compatible || !ranges_valid || !mapping_valid ||
+	if (image.image == nullptr || !ranges_valid || !mapping_valid ||
 	    !IsValidViewType(image, normalized) || !IsValidAspect(image, normalized.aspect)) {
 		EXIT("invalid image view: image_format=%d view_format=%d type=%d aspect=0x%x "
 		     "mip=%u+%u layer=%u+%u usage=0x%x image_levels=%u image_layers=%u\n",
