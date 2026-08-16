@@ -279,8 +279,7 @@ uint32_t VulkanBytesPerElement(vk::Format format) {
 		case vk::Format::eS8Uint: return 2;
 		case vk::Format::eX8D24UnormPack32:
 		case vk::Format::eD24UnormS8Uint:
-		case vk::Format::eD32Sfloat:
-		case vk::Format::eR32Float: return 4;
+		case vk::Format::eD32Sfloat: return 4;
 		case vk::Format::eD16UnormS8Uint:
 		case vk::Format::eD32SfloatS8Uint: return 5;
 
