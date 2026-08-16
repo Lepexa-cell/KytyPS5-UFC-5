@@ -483,10 +483,14 @@ vk::ImageView Image::FindView(const ImageViewInfo& view_info) {
 	// safety net, we also reject format reinterpretations where the bytes-per-
 	// element of the view format differs from the image format, because the
 	// driver will refuse such views on the image's compatible format list.
+	// Note: We compare the Vulkan format byte sizes using VulkanBytesPerElement,
+	// since ImageViewInfo does not carry the guest format. The image's guest
+	// format bytes are compared against the view format's Vulkan bytes using
+	// VulkanBytesPerElement, which is the authoritative size for view creation.
 	const bool same_bytes_per_element =
-	    Prospero::NumBytesPerElement(view_info.guest_format) == 0 ||
-	    Prospero::NumBytesPerElement(view_info.guest_format) ==
-	        Prospero::NumBytesPerElement(info.guest_format);
+	    Prospero::VulkanBytesPerElement(normalized.format) == 0 ||
+	    Prospero::VulkanBytesPerElement(normalized.format) ==
+	        Prospero::VulkanBytesPerElement(image.format);
 	const bool format_compatible = normalized.format != vk::Format::eUndefined &&
 	                               same_bytes_per_element &&
 	                               (IsCompatibleViewFormat(image.format, normalized.format) ||
