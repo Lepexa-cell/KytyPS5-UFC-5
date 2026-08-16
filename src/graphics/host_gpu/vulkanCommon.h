@@ -1,6 +1,17 @@
 #ifndef EMULATOR_SRC_GRAPHICS_HOST_GPU_VULKANCOMMON_H_
 #define EMULATOR_SRC_GRAPHICS_HOST_GPU_VULKANCOMMON_H_
 
+// Force dynamic dispatch for Vulkan-Hpp regardless of whether <vulkan/vulkan.hpp>
+// was already included by another header (e.g. via gpu_format.h). If vulkan.hpp
+// was included before these macros were set, vulkan_hpp_macros.hpp would have
+// defaulted VULKAN_HPP_DISPATCH_LOADER_DYNAMIC to 0 (static dispatch), causing
+// the compiler to emit direct calls to vk* symbols that are not resolvable when
+// only bundled Vulkan-Headers are available (no SDK import library).
+// The #undef ensures we can safely redefine these macros even if they were
+// already set by a prior include of vulkan_hpp_macros.hpp.
+#ifdef VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
+#  undef VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
+#endif
 #define VK_NO_PROTOTYPES
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC    1
 #define VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL 1

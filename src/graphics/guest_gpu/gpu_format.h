@@ -2,7 +2,7 @@
 #define EMULATOR_INCLUDE_EMULATOR_GRAPHICS_GUEST_GPU_GPU_FORMAT_H_
 
 #include "common/common.h"
-#include <vulkan/vulkan.hpp>
+#include "graphics/host_gpu/vulkanCommon.h" // IWYU pragma: export
 
 namespace Libs::Graphics::Prospero {
 

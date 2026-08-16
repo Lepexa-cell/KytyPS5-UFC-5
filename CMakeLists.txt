@@ -292,13 +292,7 @@ if (KYTY_CLANG_CL)
 	set_source_files_properties(${kyty_emulator_src} PROPERTIES COMPILE_FLAGS "-Wno-pragma-pack -Wno-deprecated-declarations -D_TIMESPEC_DEFINED")
 endif()
 
-# The Vulkan::Headers target (from the Vulkan-Headers submodule) provides only
-# header paths. The actual Vulkan runtime library (vulkan-1.lib on Windows,
-# libvulkan.so on Linux) is needed at link time to resolve symbols such as
-# vkCreateImageView, which are dispatched through the Vulkan-Hpp dynamic dispatch
-# table (VULKAN_HPP_DISPATCH_LOADER_DYNAMIC + VK_NO_PROTOTYPES).
-find_package(Vulkan REQUIRED)
-set(kyty_emulator_link_libraries common Vulkan::Headers Vulkan::Vulkan spirv-tools-opt spirv-tools SDL2-static imgui xxhash FFmpeg::ffmpeg fmt::fmt nlohmann_json::nlohmann_json LibAtrac9 kyty_git_version)
+set(kyty_emulator_link_libraries common Vulkan::Headers spirv-tools-opt spirv-tools SDL2-static imgui xxhash FFmpeg::ffmpeg fmt::fmt nlohmann_json::nlohmann_json LibAtrac9 kyty_git_version)
 
 # Linux system libraries required by the static FFmpeg archive.
 if(LINUX)
