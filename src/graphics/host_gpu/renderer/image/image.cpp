@@ -12,6 +12,7 @@
 
 	#include <algorithm>
 	#include <array>
+	#include <cinttypes>
 	#include <cstdint>
 	#include <vector>
 	#include <xxhash.h>
@@ -616,7 +617,11 @@ void Validate(const ImageInfo& info) {
 		    info.extent.height == 0 || info.extent.depth == 0 || info.resources.levels != 1 ||
 		    info.resources.layers != 1 || info.samples != 1 || info.pitch == 0 ||
 		    info.bytes_per_block == 0) {
-			EXIT("invalid stencil association image\n");
+			LOGF("invalid stencil association image (stencil_addr=%016" PRIx64 ", data_empty=%d, has_stencil=%d)! "
+			     "Skipping stencil association.\n",
+			     info.stencil.address,
+			     info.data.Empty() ? 1 : 0, info.HasStencil() ? 1 : 0);
+			return;
 		}
 		return;
 	}
@@ -695,9 +700,29 @@ uint32_t RenderTargetTransferFormat(uint32_t bytes_per_element) {
 
 } // namespace ImageOps
 
+static vk::Format ResolveStencilAssociationFormat(const ImageInfo& info) {
+	if (info.pixel_format != vk::Format::eUndefined || !info.HasStencil()) {
+		return info.pixel_format;
+	}
+	const auto* policy = FindDepthFormatPolicy(info.guest_format);
+	if (policy == nullptr) {
+		return info.pixel_format;
+	}
+	const auto format = DepthAttachmentFormat(*policy, true);
+	if (format != vk::Format::eUndefined) {
+		LOGF_COLOR(Log::Color::Yellow,
+		           "Image: auto-resolved pixel_format from eUndefined to %s for "
+		           "depth/stencil guest_format=%u\n",
+		           VulkanToString(format).c_str(), info.guest_format);
+		return format;
+	}
+	return info.pixel_format;
+}
+
 Image::Image(GraphicContext& graphics, CommandScheduler& scheduler, const ImageInfo& image_info)
     : info(image_info), m_graphics(&graphics), m_scheduler(&scheduler) {
 	KYTY_PROFILER_FUNCTION();
+	info.pixel_format = ResolveStencilAssociationFormat(info);
 	ImageOps::Validate(info);
 	m_cpu_dirty =
 	    !info.data.Empty() && info.metadata.compression == VideoOutCompression::Uncompressed;
