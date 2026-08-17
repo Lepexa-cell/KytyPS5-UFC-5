@@ -938,7 +938,8 @@ static bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exc
 
 		LOGF("%s code: addr=%016" PRIx64 ", off=%016" PRIx64 ", module=%s:", name, addr,
 		     addr - p->base_vaddr,
-		     Common::FilenameWithoutDirectory(Common::PathToGenericString(p->file_name)).c_str());
+		     p != nullptr ? Common::FilenameWithoutDirectory(
+						Common::PathToGenericString(p->file_name)).c_str() : "Unknown");
 		for (uint32_t i = 0; i < dump_size; i++) {
 			LOGF(" %02" PRIx32, static_cast<uint32_t>(dump_ptr[i]));
 		}
@@ -1025,13 +1026,13 @@ static bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exc
 			dump_guest_qwords("vorbis len", info->rcx);
 		}
 
-		EXIT("Access violation: %s [%016" PRIx64 "] %s\n",
+		LOGF("Access violation: %s [%016" PRIx64 "] %s\n",
 		     Common::EnumName(info->access_violation_type).c_str(), info->access_violation_vaddr,
 		     (info->access_violation_vaddr == g_invalid_memory ? "(Unpatched object)" : ""));
 		return false;
 	}
 
-	EXIT("Unknown exception!!! (%08" PRIx32 ")", info->native_code);
+	LOGF("Unknown exception!!! (%08" PRIx32 ")", info->native_code);
 	return false;
 }
 
@@ -1874,6 +1875,9 @@ Program* RuntimeLinker::FindProgramByAddr(uint64_t vaddr) {
 	Common::LockGuard lock(m_mutex);
 
 	for (auto* p: m_programs) {
+		if (p->elf == nullptr) {
+			continue;
+		}
 		const auto* ehdr = p->elf->GetEhdr();
 		const auto* phdr = p->elf->GetPhdr();
 
