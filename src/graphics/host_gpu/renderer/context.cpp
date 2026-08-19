@@ -17,6 +17,8 @@
 
 #include <algorithm>
 #include <bit>
+#include <cinttypes>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 namespace Libs::Graphics {
@@ -201,6 +203,18 @@ void CommandBuffer::Execute(const SubmitInfo& submit) {
 		     static_cast<uint32_t>(static_cast<int>(result)), m_slot->id, m_submit_seq,
 		     m_debug_op, m_debug_submit_id, m_debug_arg0, m_debug_arg1, m_debug_arg2, m_debug_arg3,
 		     m_debug_arg4);
+		if (result == vk::Result::eDeviceLost) {
+			LOGF_COLOR(Log::Color::BrightRed,
+			             "VULKAN DEVICE LOST! Last submitted command buffer: "
+			             "slot=%u submit_seq=%" PRIu64 " debug_op=%u debug_submit=%" PRIu64
+			             " args=%u,%u,%u,%u,0x%016" PRIx64 "\n",
+			             m_slot->id, m_submit_seq, m_debug_op, m_debug_submit_id, m_debug_arg0,
+			             m_debug_arg1, m_debug_arg2, m_debug_arg3, m_debug_arg4);
+			::Log::Flush();
+			std::fflush(stdout);
+			std::fflush(stderr);
+			EXIT("Vulkan device lost\n");
+		}
 		if (result != vk::Result::eNotReady) {
 			m_execute = false;
 			return;
@@ -227,6 +241,18 @@ void CommandBuffer::WaitForFenceOnly() {
 		     static_cast<uint32_t>(static_cast<int>(result)),
 		     m_slot->id, m_submit_seq, m_debug_op, m_debug_submit_id, m_debug_arg0, m_debug_arg1,
 		     m_debug_arg2, m_debug_arg3, m_debug_arg4);
+		if (result == vk::Result::eDeviceLost) {
+			LOGF_COLOR(Log::Color::BrightRed,
+			             "VULKAN DEVICE LOST while waiting for fence! Last submitted command buffer: "
+			             "slot=%u submit_seq=%" PRIu64 " debug_op=%u debug_submit=%" PRIu64
+			             " args=%u,%u,%u,%u,0x%016" PRIx64 "\n",
+			             m_slot->id, m_submit_seq, m_debug_op, m_debug_submit_id, m_debug_arg0,
+			             m_debug_arg1, m_debug_arg2, m_debug_arg3, m_debug_arg4);
+			::Log::Flush();
+			std::fflush(stdout);
+			std::fflush(stderr);
+			EXIT("Vulkan device lost while waiting for fence\n");
+		}
 		if (result == vk::Result::eNotReady || result == vk::Result::eTimeout) {
 			return;
 		}

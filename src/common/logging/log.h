@@ -4,11 +4,13 @@
 #include "common/common.h"
 #include "common/subsystems.h"
 
+#include <cstdio>
 #include <fmt/color.h>
 #include <fmt/printf.h>
 #include <string_view>
 
 namespace Log {
+
 
 KYTY_SUBSYSTEM_DEFINE(Log);
 
@@ -46,6 +48,9 @@ inline constexpr auto BrightWhite   = fmt::fg(fmt::terminal_color::bright_white)
 	do {                                                                                           \
 		if (!::Log::IsSilent()) {                                                                  \
 			::Log::Write(::fmt::sprintf(__VA_ARGS__));                                             \
+			::Log::Flush();                                                                         \
+			std::fflush(stdout);                                                                     \
+			std::fflush(stderr);                                                                     \
 		}                                                                                          \
 	} while (false)
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -53,6 +58,9 @@ inline constexpr auto BrightWhite   = fmt::fg(fmt::terminal_color::bright_white)
 	do {                                                                                           \
 		if (!::Log::IsSilent()) {                                                                  \
 			::Log::Write((style), ::fmt::sprintf(__VA_ARGS__));                                    \
+			::Log::Flush();                                                                         \
+			std::fflush(stdout);                                                                     \
+			std::fflush(stderr);                                                                     \
 		}                                                                                          \
 	} while (false)
 

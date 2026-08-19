@@ -2,12 +2,15 @@
 
 #include "common/assert.h"
 #include "common/debug.h"
+#include "common/logging/log.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>             // IWYU pragma: keep
 #include <condition_variable> // IWYU pragma: keep
+#include <cstdio>
+#include <exception>
 #include <mutex>
 #include <vector>
 
@@ -232,10 +235,27 @@ struct ThreadPrivate {
 	static void Run(ThreadPrivate* t) {
 		t->unique_id = Thread::GetThreadIdUnique();
 		t->started   = true;
-		t->func(t->arg);
+		try {
+			t->func(t->arg);
+		} catch (const std::exception& e) {
+			::Log::Write(::Log::Color::BrightRed,
+			             ::fmt::format("CRITICAL UNCAUGHT EXCEPTION in worker thread: {}\n",
+			                              e.what()));
+			::Log::Flush();
+			std::fflush(stdout);
+			std::fflush(stderr);
+		} catch (...) {
+			::Log::Write(::Log::Color::BrightRed,
+			             "CRITICAL UNKNOWN EXCEPTION in worker thread!\n");
+			::Log::Flush();
+			std::fflush(stdout);
+			std::fflush(stderr);
+		}
+		t->finished = true;
 	}
 
 	thread_func_t    func;
+
 	void*            arg;
 	std::atomic_bool finished    = false;
 	std::atomic_bool auto_delete = false;

@@ -25,6 +25,7 @@
 #include "loader/systemContent.h"
 #include "loader/timer.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 
@@ -172,12 +173,26 @@ static void Execute(const std::filesystem::path& game_patch) {
 	auto           patch_path = game_patch;
 	Common::Thread guest_thread(
 	    [](void* param) {
-		    auto* rt = Common::Singleton<Loader::RuntimeLinker>::Instance();
-		    rt->Execute(*static_cast<const std::filesystem::path*>(param));
+		    try {
+			    auto* rt = Common::Singleton<Loader::RuntimeLinker>::Instance();
+			    rt->Execute(*static_cast<const std::filesystem::path*>(param));
+		    } catch (const std::exception& e) {
+			    LOGF_COLOR(Log::Color::BrightRed, "Exception in guest thread: %s\n", e.what());
+		    } catch (...) {
+			    LOGF_COLOR(Log::Color::BrightRed, "Unknown exception in guest thread\n");
+		    }
 	    },
 	    &patch_path);
-	Libs::Graphics::WindowRun();
-	std::quick_exit(0);
+	try {
+		Libs::Graphics::WindowRun();
+	} catch (const std::exception& e) {
+		LOGF_COLOR(Log::Color::BrightRed, "Exception in main thread: %s\n", e.what());
+	} catch (...) {
+		LOGF_COLOR(Log::Color::BrightRed, "Unknown exception in main thread\n");
+	}
+	std::fflush(stdout);
+	std::fflush(stderr);
+	::Log::Flush();
 }
 
 void Run(const RunOptions& options) {
